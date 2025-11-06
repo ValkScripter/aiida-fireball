@@ -2,7 +2,7 @@
 
 import os
 import re
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import numpy as np
 from aiida import orm
@@ -96,7 +96,7 @@ class FireballParser(Parser):
 
     def parse_output_structure(
         self, retrieved_temporary_folder: str, rescale_factor: float, logs: AttributeDict
-    ) -> tuple[orm.StructureData | None, AttributeDict]:
+    ) -> tuple[Optional[orm.StructureData], AttributeDict]:
         """Parse the output structure from the 'answer.bas' file in the retrieved temporary folder.
         rescale_factor: used to rescale the input structure cell to the output structure cell.
         the answer.bas file contains the atomic positions of the output structure (already scaled).
@@ -130,7 +130,7 @@ class FireballParser(Parser):
 
     def parse_output_trajectory(
         self, retrieved_temporary_folder: str, rescale_factor: float, logs: AttributeDict
-    ) -> tuple[orm.TrajectoryData | None, AttributeDict]:
+    ) -> tuple[Optional[orm.TrajectoryData], AttributeDict]:
         """Parse the output trajectory from the 'answer.xyz' file in the retrieved temporary folder if it exists.
         rescale_factor: used to rescale the input structure cell to the output structure cells.
         the answer.xyz file contains the atomic positions of the output structures (already scaled).
@@ -149,9 +149,9 @@ class FireballParser(Parser):
         with open(answer_xyz_file, "r", encoding="utf-8") as handle:
             lines = handle.readlines()
             images: list[Atoms] = []
-            energies: list[float | None] = []
-            temperatures: list[float | None] = []
-            times: list[float | None] = []
+            energies: list[Optional[float]] = []
+            temperatures: list[Optional[float]] = []
+            times: list[Optional[float]] = []
             while len(lines) > 0:
                 symbols: list[str] = []
                 positions: list[list[float]] = []
@@ -193,7 +193,7 @@ class FireballParser(Parser):
 
         return trajectory, logs
 
-    def emit_logs(self, logs: list[AttributeDict] | tuple[AttributeDict] | AttributeDict, ignore: Optional[list] = None) -> None:
+    def emit_logs(self, logs: Union[list[AttributeDict], tuple[AttributeDict], AttributeDict], ignore: Optional[list] = None) -> None:
         """Emit the messages in one or multiple "log dictionaries" through the logger of the parser.
 
         A log dictionary is expected to have the following structure: each key must correspond to a log level of the
@@ -225,7 +225,7 @@ class FireballParser(Parser):
 
                     getattr(self.logger, level)(stripped)
 
-    def exit(self, exit_code: ExitCode | None = None, logs: AttributeDict | None = None) -> ExitCode:
+    def exit(self, exit_code: Optional[ExitCode] = None, logs: Optional[AttributeDict] = None) -> ExitCode:
         """Log all messages in the ``logs`` as well as the ``exit_code`` message and return the correct exit code.
 
         This is a utility function if one wants to return from the parse method and automically add the ``logs`` and
