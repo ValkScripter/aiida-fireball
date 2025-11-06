@@ -8,6 +8,7 @@ from collections.abc import Mapping
 import pytest
 from aiida import orm
 from aiida.common import CalcInfo
+from aiida.common.folders import SandboxFolder
 from ase import build
 
 # pytest_plugins = ["aiida.tools.pytest_fixtures"]
@@ -34,7 +35,6 @@ def filepath_fixtures(filepath_tests) -> str:
 @pytest.fixture(scope="function")
 def fixture_sandbox():
     """Return a `SandboxFolder`."""
-    from aiida.common.folders import SandboxFolder
 
     with SandboxFolder() as folder:
         yield folder
@@ -123,7 +123,7 @@ def serialize_builder():
                 return data.get_kpoints_mesh()
 
         if isinstance(data, SinglefileData):
-            return data.get_content()
+            return data.get_content(mode="r")
 
         if isinstance(data, Data):
             return data.base.caching._get_hash()  # pylint: disable=protected-access

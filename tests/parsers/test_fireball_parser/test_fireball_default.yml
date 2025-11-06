@@ -2,8 +2,12 @@ output_parameters:
   beta_mixing: 0.04
   charge_state: 0.0
   charge_type: Lowdin
+  energy: -906.796096
   energy_tolerance: 0.0001
   energy_tolerance_units: eV
+  energy_trajectory:
+  - -906.796096
+  energy_units: eV
   fermi_energy: -3.059411
   fermi_energy_units: eV
   force_tolerance: 0.05
@@ -11,8 +15,6 @@ output_parameters:
   quenching_mode: Dynamical quenching
   rescale_factor: 1.0136068798
   sigma_tolerance: 1.0e-08
-  total_energy: -906.796096
-  total_energy_units: eV
   volume: 163.73093787253376
   wall_time_seconds: 26.487319
 output_structure:

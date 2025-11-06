@@ -1,7 +1,9 @@
 """Utility functions for the Fireball calculations."""
 
 import numbers
+from collections import Counter
 
+import numpy
 from aiida.common import exceptions
 
 
@@ -14,8 +16,6 @@ def _uppercase_dict(dictionary, dict_name):
 
 
 def _case_transform_dict(dictionary, dict_name, func_name, transform):
-    from collections import Counter
-
     if not isinstance(dictionary, dict):
         raise TypeError(f"{func_name} accepts only dictionaries as argument, got {type(dictionary)}")
     new_dict = dict((transform(str(k)), v) for k, v in dictionary.items())
@@ -34,7 +34,6 @@ def conv_to_fortran(val, quote_strings=True):
 
     :param val: the value to be read and converted to a Fortran-friendly string.
     """
-    import numpy
 
     # Note that bool should come before integer, because a boolean matches also isinstance(..., int)
     if isinstance(val, (bool, numpy.bool_)):
@@ -52,9 +51,7 @@ def conv_to_fortran(val, quote_strings=True):
         else:
             val_str = f"{val!s}"
     else:
-        raise ValueError(
-            f"Invalid value '{val}' of type '{type(val)}' passed, accepts only bools, ints, floats and strings"
-        )
+        raise ValueError(f"Invalid value '{val}' of type '{type(val)}' passed, accepts only bools, ints, floats and strings")
 
     return val_str
 
@@ -185,16 +182,14 @@ def convert_input_to_namelist_entry(key, val, mapping=None):
                             raise ValueError("cannot map the string value because no mapping was defined")
 
                         if value not in mapping:
-                            raise ValueError(
-                                f"the nested list contained string {value} but this is not a key in the mapping"
-                            )
+                            raise ValueError(f"the nested list contained string {value} but this is not a key in the mapping")
                         else:
                             values.append(str(mapping[value]))
                     else:
                         values.append(str(value))
 
                 idx_string = ",".join(values)
-                item_val = itemval.pop()
+                item_val = itemval[-1]
             else:
                 idx_string = f"{idx + 1}"
                 item_val = itemval
