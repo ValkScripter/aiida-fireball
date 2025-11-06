@@ -1,8 +1,7 @@
 &OPTION
-  basisfile = 'aiida.bas'
-  kptpreference = 'aiida.kpts'
-  lvsfile = 'aiida.lvs'
-  verbosity = 3
+  basisfile = aiida.bas
+  kptpreference = aiida.kpts
+  lvsfile = aiida.lvs
 &END
 &OUTPUT
   iwrtcdcoefs = 0

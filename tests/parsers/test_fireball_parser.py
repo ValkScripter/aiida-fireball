@@ -6,6 +6,7 @@ import pytest
 from aiida import orm
 from aiida.common import AttributeDict
 from aiida.parsers import Parser
+
 from aiida_fireball.calculations.fireball import FireballCalculation
 from aiida_fireball.parsers.fireball import FireballParser
 
@@ -121,3 +122,89 @@ def test_fireball_no_retrieved_temporary_folder(fixture_localhost, generate_calc
 
     assert calcfunction.is_failed, calcfunction.process_state
     assert calcfunction.exit_status == node.process_class.exit_codes.ERROR_NO_RETRIEVED_TEMPORARY_FOLDER.status
+
+
+def test_fireball_parser_transport(
+    fixture_localhost,
+    generate_calc_job_node,
+    generate_parser,
+    generate_inputs,
+    tmp_path,
+):
+    """Test le parsing d'un calcul Fireball avec transport (eta/trans/interaction) et CHARGES."""
+
+    name = "transport"
+    entry_point_calc_job = "fireball.fireball"
+    entry_point_parser = "fireball.fireball"
+
+    # Prépare le dossier temporaire avec les fichiers nécessaires
+    retrieve_temporary_folder = tmp_path / "fireball" / name
+    retrieve_temporary_folder.mkdir(parents=True, exist_ok=True)
+
+    # Fichier answer.bas minimal (structure finale)
+    (retrieve_temporary_folder / "answer.bas").write_text(
+        """2
+C 0.0 0.0 0.0
+C 1.0 0.0 0.0
+"""
+    )
+    # Fichier CHARGES minimal
+    (retrieve_temporary_folder / "CHARGES").write_text("0.1\n0.2\n")
+    # Fichier eta.optional
+    (retrieve_temporary_folder / "eta.optional").write_text("0.05\n1\n1 5\n")
+    # Fichier trans.optional
+    (retrieve_temporary_folder / "trans.optional").write_text("TRUE\nFALSE\nTRUE\n1\n-2.0\n2.0\n4\n0.02\n")
+    # Fichier interaction.optional
+    (retrieve_temporary_folder / "interaction.optional").write_text("0\n10\n1\n1 10\n2\n2,3\n0\n8\n1\n11 18\n3\n12,13,14\n")
+
+    retrieve_temporary_list = [
+        "answer.bas",
+        "CHARGES",
+        "eta.optional",
+        "trans.optional",
+        "interaction.optional",
+    ]
+
+    node = generate_calc_job_node(
+        entry_point_calc_job,
+        fixture_localhost,
+        name,
+        generate_inputs(),
+        retrieve_temporary=(str(retrieve_temporary_folder), retrieve_temporary_list),
+    )
+    parser: Parser = generate_parser(entry_point_parser)
+    results, calcfunction = parser.parse_from_node(
+        node,
+        store_provenance=False,
+        retrieved_temporary_folder=str(retrieve_temporary_folder),
+    )
+
+    # Vérifie que le parsing a réussi
+    assert calcfunction.is_finished_ok
+
+    # Vérifie la présence de la structure finale
+    assert "output_structure" in results
+    structure = results["output_structure"]
+    assert structure.get_formula() == "C2"
+
+    # Vérifie la présence des fichiers de transport parsés (optionnel selon ton parser)
+    # Par exemple, si tu exposes les résultats comme Dict :
+    assert "output_eta" in results or "eta" in results
+    assert "output_trans" in results or "trans" in results
+    assert "output_interaction" in results or "interaction" in results
+
+    # Vérifie la présence du fichier CHARGES dans le dossier récupéré
+    with node.outputs.retrieved.open("CHARGES") as handle:
+        charges_content = handle.read()
+        assert "0.1" in charges_content and "0.2" in charges_content
+
+    # Copie les fichiers générés dans le dossier courant pour inspection
+    import os
+
+    output_dir = os.path.join(os.getcwd(), "fireball_test_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+    for fname in ["answer.bas", "CHARGES", "eta.optional", "trans.optional", "interaction.optional"]:
+        src = retrieve_temporary_folder / fname
+        if src.exists():
+            with open(src, "r") as fsrc, open(os.path.join(output_dir, fname), "w") as fdst:
+                fdst.write(fsrc.read())

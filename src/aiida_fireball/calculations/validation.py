@@ -206,3 +206,89 @@ def validate_cgopt_params(value, settings: dict, parameters: dict) -> list[str]:
         settings["CGOPT"] = cgopt_params
 
     return messages
+
+
+def validate_transport_params(value, settings: dict, parameters: dict) -> list[str]:
+    """Validate the transport parameters
+
+    :param value: The entire inputs namespace.
+    :param settings: The settings dictionary.
+    :param parameters: The parameters dictionary.
+    :return: A list of error messages, empty if no errors.
+    """
+    messages = []
+
+    transport_params = settings.get("TRANSPORT", None)
+
+    if transport_params is not None:
+        # Ne rien exiger : aucun block n'est obligatoire
+        # Mais si un block est présent, il doit être complete
+
+        if "INTERACTION" in transport_params:
+            interaction = transport_params["INTERACTION"]
+            needed = {
+                "ncell1",
+                "total_atoms1",
+                "ninterval1",
+                "intervals1",
+                "natoms_tip1",
+                "atoms1",
+                "ncell2",
+                "total_atoms2",
+                "ninterval2",
+                "intervals2",
+                "natoms_tip2",
+                "atoms2",
+            }
+            if not all(k in interaction for k in needed):
+                messages.append("TRANSPORT.interaction missing mandatory keys")
+            if not isinstance(interaction["intervals1"], list) or not all(len(t) == 2 for t in interaction["intervals1"]):
+                messages.append("Invalid 'intervals1' format in TRANSPORT.interaction")
+            if not isinstance(interaction["intervals2"], list) or not all(len(t) == 2 for t in interaction["intervals2"]):
+                messages.append("Invalid 'intervals2' format in TRANSPORT.interaction")
+            if not all(isinstance(i, int) for i in interaction.get("atoms1", [])):
+                messages.append("Invalid 'atoms1' format in TRANSPORT.interaction")
+            if not all(isinstance(i, int) for i in interaction.get("atoms2", [])):
+                messages.append("Invalid 'atoms2' format in TRANSPORT.interaction")
+
+        if "ETA" in transport_params:
+            eta = transport_params["ETA"]
+            if "imag_part" not in eta or "intervals" not in eta:
+                messages.append("TRANSPORT.eta missing 'imag_part' or 'intervals'")
+            if not isinstance(eta["intervals"], list):
+                messages.append("Invalid 'intervals' in TRANSPORT.eta")
+
+        if "TRANS" in transport_params:
+            trans = transport_params["TRANS"]
+            needed = {"ieta", "iwrt_trans", "ichannel", "ifithop", "Ebottom", "Etop", "nsteps", "eta"}
+            if not all(k in trans for k in needed):
+                messages.append("TRANSPORT.trans missing mandatory keys")
+            if not isinstance(trans["ieta"], bool) or not isinstance(trans["iwrt_trans"], bool) or not isinstance(trans["ichannel"], bool):
+                messages.append("TRANSPORT.trans boolean flags must be bool")
+            if not isinstance(trans["ifithop"], int) or trans["ifithop"] not in (0, 1):
+                messages.append("Invalid 'ifithop' in TRANSPORT.trans")
+            try:
+                float(trans["Ebottom"])
+                float(trans["Etop"])
+                int(trans["nsteps"])
+                float(trans["eta"])
+            except Exception:
+                messages.append("Invalid numerical values in TRANSPORT.trans")
+
+        if "BIAS" in transport_params:
+            bias = transport_params["BIAS"]
+            for k in ("bias", "z_top", "z_bottom"):
+                if k not in bias:
+                    messages.append(f"TRANSPORT.bias missing '{k}'")
+            try:
+                float(bias["bias"])
+                float(bias["z_top"])
+                float(bias["z_bottom"])
+            except Exception:
+                messages.append("Invalid numerical values in TRANSPORT.bias")
+
+        settings.setdefault("ADDITIONAL_RETRIEVE_LIST", [])
+        settings["ADDITIONAL_RETRIEVE_LIST"].append("conductance.dat")
+        settings["ADDITIONAL_RETRIEVE_LIST"].append("dens_TOT.dat")
+
+    return messages

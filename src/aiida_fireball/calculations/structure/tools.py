@@ -1,5 +1,6 @@
 """Calculations as tools for structure manipulation"""
 
+import numpy as np
 from aiida import orm
 from aiida.engine import calcfunction
 
@@ -49,9 +50,9 @@ def interpolate_structures(
 def scale_structure(
     structure: orm.StructureData,
     scale_factor: orm.Float,
-        scale_a: orm.Bool,
-        scale_b: orm.Bool,
-        scale_c: orm.Bool,
+    scale_a: orm.Bool,
+    scale_b: orm.Bool,
+    scale_c: orm.Bool,
 ) -> orm.StructureData:
     """
     Calcfunction to scale a structure (cell and positions) by a given factor along
@@ -68,11 +69,7 @@ def scale_structure(
     ase_structure = structure.get_ase()
     ase_scaled = ase_structure.copy()
     scales = [scale_a.value, scale_b.value, scale_c.value]
-    scale_factors = [
-        scale_factor.value if scale else 1.0 for scale in scales
-    ]
-    ase_scaled.set_cell(
-        np.diag(scale_factors) @ ase_structure.cell, scale_atoms=True
-    )
+    scale_factors = [scale_factor.value if scale else 1.0 for scale in scales]
+    ase_scaled.set_cell(np.diag(scale_factors) @ ase_structure.cell, scale_atoms=True)
 
     return orm.StructureData(ase=ase_scaled)

@@ -9,7 +9,7 @@ from aiida.engine import CalcJob
 from aiida.orm import BandsData, Dict, KpointsData, RemoteData, StructureData, TrajectoryData
 
 from .utils import _lowercase_dict, _uppercase_dict, conv_to_fortran, convert_input_to_namelist_entry
-from .validation import validate_cgopt_params, validate_dos_params, validate_fixed_coords
+from .validation import validate_cgopt_params, validate_dos_params, validate_fixed_coords, validate_transport_params
 
 
 class FireballCalculation(CalcJob):
@@ -30,7 +30,7 @@ class FireballCalculation(CalcJob):
             "basisfile": _DEFAULT_BAS_FILE,
             "lvsfile": _DEFAULT_LVS_FILE,
             "kptpreference": _DEFAULT_KPTS_FILE,
-            "verbosity": 3,
+            # "verbosity": 3,
         }
     }
 
@@ -47,7 +47,7 @@ class FireballCalculation(CalcJob):
     _restart_copy_to = "./"
 
     @classmethod
-    def define(cls, spec):
+    def define(cls, spec):  # cette function déclare ce que l'utilisateur doit fournir et ce que le calcul renvoie
         """Define inputs and outputs of the calculation."""
         super().define(spec)
 
@@ -69,7 +69,7 @@ class FireballCalculation(CalcJob):
         # }
         spec.inputs.validator = cls.validate_inputs
 
-        # Outputs
+        # Outputs extrained from the calculation aiida.out
         spec.output(
             "output_parameters",
             valid_type=Dict,
@@ -90,6 +90,9 @@ class FireballCalculation(CalcJob):
         )
         spec.output("output_kpoints", valid_type=KpointsData, required=False)
         spec.output("output_atomic_occupations", valid_type=Dict, required=False)
+        spec.output("transport_interaction", valid_type=Dict, required=False)
+        spec.output("transport_eta", valid_type=Dict, required=False)
+        spec.output("transport_trans", valid_type=Dict, required=False)
         spec.default_output_node = "output_parameters"
 
         # Exit codes
@@ -155,6 +158,9 @@ class FireballCalculation(CalcJob):
         # Validate the CGOPT settings
         messages.extend(validate_cgopt_params(value, settings, parameters))
 
+        # Validate the TRANSPORT settings
+        messages.extend(validate_transport_params(value, settings, parameters))
+
         # Update settings with the new values
         value["settings"] = Dict(settings)
         # Update parameters with the new values
@@ -189,7 +195,16 @@ class FireballCalculation(CalcJob):
                 handle.write(content)
 
         # Write the input file
-        write_in_folder(folder, self.metadata.options.input_filename, self.generate_input(self.inputs.parameters.get_dict()))
+        input_filecontent = self.generate_input(self.inputs.parameters.get_dict())
+
+        for fname in (self._DEFAULT_BAS_FILE, self._DEFAULT_LVS_FILE, self._DEFAULT_KPTS_FILE):
+            input_filecontent = input_filecontent.replace(f"'{fname}'", fname)
+
+        import re
+
+        input_filecontent = re.sub(r"(dt\s*=\s*)'([0-9.+-EeDd]+)'", r"\1\2", input_filecontent)
+        with folder.open(self.metadata.options.input_filename, "w") as handle:
+            handle.write(input_filecontent)
 
         # Write the bas file
         write_in_folder(folder, self._DEFAULT_BAS_FILE, self.generate_bas(self.inputs.structure))
@@ -216,6 +231,17 @@ class FireballCalculation(CalcJob):
         if "CGOPT" in settings and settings["CGOPT"] is not None:
             cgopt_params: dict = settings.pop("CGOPT")
             write_in_folder(folder, "cgopt.optional", self.generate_cgopt_optional(cgopt_params))
+
+        if "TRANSPORT" in settings and settings["TRANSPORT"] is not None:
+            transport_params: dict = settings.pop("TRANSPORT")
+            if "INTERACTION" in transport_params:
+                write_in_folder(folder, "interaction.optional", self.generate_interaction_optional(transport_params["INTERACTION"]))
+            if "ETA" in transport_params:
+                write_in_folder(folder, "eta.optional", self.generate_eta_optional(transport_params["ETA"]))
+            if "TRANS" in transport_params:
+                write_in_folder(folder, "trans.optional", self.generate_trans_optional(transport_params["TRANS"]))
+            if "BIAS" in transport_params:
+                write_in_folder(folder, "bias.optional", self.generate_bias_optional(transport_params["BIAS"]))
 
         # operations for restart
         symlink = settings.pop("PARENT_FOLDER_SYMLINK", self._default_symlink_usage)  # a boolean
@@ -386,3 +412,85 @@ class FireballCalculation(CalcJob):
         file_lines.append(f"{conv_to_fortran(cgopt_params['switch_MD'])} \t! switch_MD = Number of FIRE downhill steps after BFGS minimization fails")
 
         return "\n".join(file_lines) + "\n"
+
+    @classmethod
+    def generate_interaction_optional(cls, params: dict) -> str:
+        lines = []
+        # Sample 1
+        lines.append(str(params.get("ncell1", 0)))
+        lines.append(str(params.get("total_atoms1", 0)))
+        lines.append(str(params.get("ninterval1", 1)))
+        for s, e in params.get("intervals1", []):
+            lines.append(f"{s}  {e}")
+        atoms1 = params.get("atoms1", [])
+        lines.append(str(params.get("natoms_tip1", len(atoms1))))
+        if atoms1:
+            lines.append(",".join(str(i) for i in atoms1))
+        # Sample 2
+        lines.append(str(params.get("ncell2", 0)))
+        lines.append(str(params.get("total_atoms2", 0)))
+        lines.append(str(params.get("ninterval2", 1)))
+        for s, e in params.get("intervals2", []):
+            lines.append(f"{s}  {e}")
+        atoms2 = params.get("atoms2", [])
+        lines.append(str(params.get("natoms_tip2", len(atoms2))))
+        if atoms2:
+            lines.append(",".join(str(i) for i in atoms2))
+        return "\n".join(lines) + "\n"
+
+    @classmethod
+    def generate_eta_optional(cls, params: dict) -> str:
+        lines = []
+        lines.append(str(params.get("imag_part", 0.0)))
+        intervals = params.get("intervals", [])
+        lines.append(str(len(intervals)))
+        for s, e in intervals:
+            lines.append(f"{s}   {e}")
+        return "\n".join(lines) + "\n"
+
+    @classmethod
+    def generate_trans_optional(cls, params: dict) -> str:
+        defaults = {
+            "ieta": False,
+            "iwrt_trans": False,
+            "ichannel": False,
+            "ifithop": 0,
+            "Ebottom": 0.0,
+            "Etop": 0.0,
+            "nsteps": 1,
+            "eta": 0.0,
+        }
+        merged = {**defaults, **params}
+        lines = []
+        for key in ("ieta", "iwrt_trans", "ichannel"):
+            lines.append("1" if merged[key] else "0")  # <-- ici
+        lines.append(str(merged["ifithop"]))
+        lines.append(str(merged["Ebottom"]))
+        lines.append(str(merged["Etop"]))
+        lines.append(str(merged["nsteps"]))
+        lines.append(str(merged["eta"]))
+        return "\n".join(lines) + "\n"
+
+    @classmethod
+    def generate_bias_optional(cls, params: dict) -> str:
+        """
+        Génère le contenu du fichier bias.optional.
+        params doit contenir : 'bias', 'z_top', 'z_bottom'
+        """
+        lines = [
+            str(params.get("bias", 0.0)),
+            str(params.get("z_top", 0.0)),
+            str(params.get("z_bottom", 0.0)),
+        ]
+        return "\n".join(lines) + "\n"
+
+    @classmethod
+    def generate_trans_optional_for_energy(cls, trans_params: dict, energy: float) -> str:
+        """
+        Génère le contenu du fichier trans.optional pour une énergie donnée.
+        Ebottom et Etop sont tous deux égaux à energy.
+        """
+        params = dict(trans_params)
+        params["Ebottom"] = energy
+        params["Etop"] = energy
+        return cls.generate_trans_optional(params)

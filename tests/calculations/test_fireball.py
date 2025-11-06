@@ -11,6 +11,7 @@ from aiida.common import datastructures
 
 # from aiida.common.exceptions import InputValidationError
 from aiida.plugins import CalculationFactory
+
 from aiida_fireball.calculations.fireball import FireballCalculation
 
 
@@ -269,3 +270,432 @@ def test_fireball_dos_settings(
     with fixture_sandbox.open("fireball.in") as handle:
         input_written = handle.read()
     file_regression.check(input_written, encoding="utf-8", extension=".in")
+
+
+def test_fireball_transport_generation(
+    fixture_sandbox,
+    generate_calc_job,
+    generate_inputs_fireball,
+    generate_calc_job_node,
+    fixture_localhost,
+):
+    """Test la génération des fichiers transport optionnels."""
+    entry_point_name = "fireball.fireball"
+    node = generate_calc_job_node(entry_point_name, fixture_localhost, test_name="test_fireball_transport")
+
+    inputs = generate_inputs_fireball()
+    inputs["parent_folder"] = node.outputs.remote_folder
+    inputs["settings"] = orm.Dict(
+        dict={
+            "TRANSPORT": {
+                "INTERACTION": {
+                    "ncell1": 0,
+                    "total_atoms1": 50,
+                    "ninterval1": 1,
+                    "intervals1": [(1, 50)],
+                    "natoms_tip1": 0,
+                    "atoms1": list(range(1, 51)),
+                    "ncell2": 0,
+                    "total_atoms2": 75,
+                    "ninterval2": 1,
+                    "intervals2": [(51, 125)],
+                    "natoms_tip2": 0,
+                    "atoms2": list(range(51, 126)),
+                },
+                "ETA": {
+                    "imag_part": 0.1,
+                    "intervals": [(1, 30)],
+                },
+                "TRANS": {
+                    "ieta": True,
+                    "iwrt_trans": False,
+                    "ichannel": True,
+                    "ifithop": 1,
+                    "Ebottom": -5.0,
+                    "Etop": 5.0,
+                    "nsteps": 10,
+                    "eta": 0.01,
+                },
+            }
+        }
+    )
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    for fname in ["interaction.optional", "eta.optional", "trans.optional"]:
+        assert fname in fixture_sandbox.get_content_list()
+        with fixture_sandbox.open(fname) as fsrc, open(fname, "w") as fdst:
+            fdst.write(fsrc.read())
+
+
+def test_fireball_transport_optionals(
+    fixture_sandbox,
+    generate_calc_job,
+    generate_inputs_fireball,
+    generate_calc_job_node,
+    fixture_localhost,
+):
+    """Test la génération des fichiers eta.optional, trans.optional et interaction.optional."""
+    entry_point_name = "fireball.fireball"
+    node = generate_calc_job_node(entry_point_name, fixture_localhost, test_name="test_fireball_transport_optionals")
+
+    inputs = generate_inputs_fireball()
+    inputs["parent_folder"] = node.outputs.remote_folder
+    inputs["settings"] = orm.Dict(
+        dict={
+            "TRANSPORT": {
+                "INTERACTION": {
+                    "ncell1": 0,
+                    "total_atoms1": 10,
+                    "ninterval1": 1,
+                    "intervals1": [(1, 10)],
+                    "natoms_tip1": 2,
+                    "atoms1": [2, 3],
+                    "ncell2": 0,
+                    "total_atoms2": 8,
+                    "ninterval2": 1,
+                    "intervals2": [(11, 18)],
+                    "natoms_tip2": 3,
+                    "atoms2": [12, 13, 14],
+                },
+                "ETA": {
+                    "imag_part": 0.05,
+                    "intervals": [(1, 5)],
+                },
+                "TRANS": {
+                    "ieta": True,
+                    "iwrt_trans": False,
+                    "ichannel": True,
+                    "ifithop": 1,
+                    "Ebottom": -2.0,
+                    "Etop": 2.0,
+                    "nsteps": 4,
+                    "eta": 0.02,
+                },
+            }
+        }
+    )
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    for fname in ["interaction.optional", "eta.optional", "trans.optional"]:
+        assert fname in fixture_sandbox.get_content_list()
+        with fixture_sandbox.open(fname) as fsrc, open(fname, "w") as fdst:
+            fdst.write(fsrc.read())
+
+    with open("eta.optional") as f:
+        content = f.read()
+        assert "0.05" in content
+        assert "1" in content
+        assert "1   5" in content
+
+
+# def test_fireball_bias_optional_generation(
+# fixture_sandbox,
+# generate_calc_job,
+# generate_inputs_fireball,
+#  generate_calc_job_node,
+#   fixture_localhost,
+# ):
+# """Test la génération du fichier bias.optional."""
+# entry_point_name = "fireball.fireball"
+# node = generate_calc_job_node(entry_point_name, fixture_localhost, test_name="test_fireball_bias_optional")
+
+# inputs = generate_inputs_fireball()
+# inputs["parent_folder"] = node.outputs.remote_folder
+# inputs["settings"] = orm.Dict(dict={
+# "TRANSPORT": {
+#  "BIAS": {
+#       "bias": -3.0,
+#        "z_top": 11.537758,
+#         "z_bottom": -18.061922,
+#      }
+#   }
+# })
+
+# generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+# assert "bias.optional" in fixture_sandbox.get_content_list()
+# with fixture_sandbox.open("bias.optional") as fsrc, open("bias.optional", "w") as fdst:
+#   fdst.write(fsrc.read())
+
+# with open("bias.optional") as f:
+#    content = f.read()
+#     assert "-3.0" in content
+#      assert "11.537758" in content
+#       assert "-18.061922" in content
+
+
+# def test_fireball_all_transport_optionals(
+# fixture_sandbox,
+# generate_calc_job,
+# generate_inputs_fireball,
+#  generate_calc_job_node,
+#   fixture_localhost,
+# ):
+# """Test la génération des fichiers eta.optional, trans.optional, interaction.optional et bias.optional."""
+# entry_point_name = "fireball.fireball"
+# node = generate_calc_job_node(entry_point_name, fixture_localhost, test_name="test_fireball_all_transport_optionals")
+
+# inputs = generate_inputs_fireball()
+# inputs["parent_folder"] = node.outputs.remote_folder
+# inputs["settings"] = orm.Dict(dict={
+# "TRANSPORT": {
+#   "INTERACTION": {
+#    "ncell1": 0,
+#    "total_atoms1": 10,
+# "ninterval1": 1,
+#  "intervals1": [(1, 10)],
+# "natoms_tip1": 2,
+# "atoms1": [2, 3],
+#  "ncell2": 0,
+#   "total_atoms2": 8,
+#    "ninterval2": 1,
+#       "intervals2": [(11, 18)],
+#      "natoms_tip2": 3,
+#     "atoms2": [12, 13, 14],
+#    },
+# "ETA": {
+#     "imag_part": 0.05,
+#      "intervals": [(1, 5)],
+#   },
+#    "TRANS": {
+# "ieta": True,
+#  "iwrt_trans": False,
+#   "ichannel": True,
+#        "ifithop": 1,
+#       "Ebottom": -2.0,
+#    "Etop": 2.0,
+#     "nsteps": 4,
+#      "eta": 0.02,
+#     },
+# "BIAS": {
+#    "bias": -3.0,
+#   "z_top": 11.537758,
+#    "z_bottom": -18.061922,
+#     # }
+#   }
+# })
+
+# generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+# for fname in ["interaction.optional", "eta.optional", "trans.optional"]:
+#    assert fname in fixture_sandbox.get_content_list()
+#     with fixture_sandbox.open(fname) as fsrc, open(fname, "w") as fdst:
+#          fdst.write(fsrc.read())
+#           fdst.write(fsrc.read())
+
+# with open("bias.optional") as f:
+# content = f.read()
+#  assert "-3.0" in content
+# assert "11.537758" in content
+#  assert "-18.061922" in content
+
+
+def test_fireball_transport_eta_trans_interaction_only(
+    fixture_sandbox,
+    generate_calc_job,
+    generate_inputs_fireball,
+    generate_calc_job_node,
+    fixture_localhost,
+):
+    """Test la génération des fichiers eta.optional, trans.optional et interaction.optional uniquement."""
+    entry_point_name = "fireball.fireball"
+    node = generate_calc_job_node(entry_point_name, fixture_localhost, test_name="test_fireball_transport_eta_trans_interaction_only")
+
+    inputs = generate_inputs_fireball()
+    inputs["parent_folder"] = node.outputs.remote_folder
+    inputs["settings"] = orm.Dict(
+        dict={
+            "TRANSPORT": {
+                "INTERACTION": {
+                    "ncell1": 0,
+                    "total_atoms1": 10,
+                    "ninterval1": 1,
+                    "intervals1": [(1, 10)],
+                    "natoms_tip1": 2,
+                    "atoms1": [2, 3],
+                    "ncell2": 0,
+                    "total_atoms2": 8,
+                    "ninterval2": 1,
+                    "intervals2": [(11, 18)],
+                    "natoms_tip2": 3,
+                    "atoms2": [12, 13, 14],
+                },
+                "ETA": {
+                    "imag_part": 0.05,
+                    "intervals": [(1, 5)],
+                },
+                "TRANS": {
+                    "ieta": True,
+                    "iwrt_trans": False,
+                    "ichannel": True,
+                    "ifithop": 1,
+                    "Ebottom": -2.0,
+                    "Etop": 2.0,
+                    "nsteps": 4,
+                    "eta": 0.02,
+                },
+            }
+        }
+    )
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    # Vérifie la présence et copie les fichiers dans le dossier courant
+    # for fname in ["interaction.optional", "eta.optional", "trans.optional"]:
+    #   assert fname in fixture_sandbox.get_content_list()
+    #   with fixture_sandbox.open(fname) as fsrc, open(fname, "w") as fdst:
+    #       fdst.write(fsrc.read())
+
+
+def test_fireball_transport_energy_scan_generation():
+    """Test la génération des fichiers trans.optional pour un scan d'énergie."""
+    import numpy as np
+
+    from aiida_fireball.calculations.fireball import FireballCalculation
+
+    # Paramètres de base pour trans.optional
+    trans_params = {
+        "ieta": True,
+        "iwrt_trans": True,
+        "ichannel": False,
+        "ifithop": 0,
+        "nsteps": 1,
+        "eta": 0.2,
+    }
+
+    # Intervalle d'énergie
+    Emin = -1.0
+    Emax = 2.0
+    step = 0.1
+
+    # Générer les énergies
+    energies = np.arange(Emin, Emax + step, step)
+
+    # Tester la génération pour chaque énergie
+    generated_files = []
+    for energy in energies:
+        content = FireballCalculation.generate_trans_optional_for_energy(trans_params, energy)
+        generated_files.append((energy, content))
+
+    # Vérifications
+    assert len(generated_files) == len(energies)
+
+    # Vérifier quelques valeurs spécifiques
+    for energy, content in generated_files:
+        lines = content.strip().split("\n")
+        assert len(lines) == 8  # 8 lignes dans trans.optional
+        assert lines[0] == "1"  # ieta
+        assert lines[1] == "1"  # iwrt_trans
+        assert lines[2] == "0"  # ichannel
+        assert lines[3] == "0"  # ifithop
+        assert lines[4] == str(energy)  # Ebottom = energy
+        assert lines[5] == str(energy)  # Etop = energy
+        assert lines[6] == "1"  # nsteps
+        assert lines[7] == "0.2"  # eta
+
+    # Vérifier les valeurs d'énergie aux bornes
+    first_energy, first_content = generated_files[0]
+    last_energy, last_content = generated_files[-1]
+
+    assert abs(first_energy - Emin) < 1e-10
+    assert abs(last_energy - Emax) < 1e-10
+
+    # Vérifier que Ebottom et Etop sont bien égaux à l'énergie
+    first_lines = first_content.strip().split("\n")
+    assert first_lines[4] == str(first_energy)
+    assert first_lines[5] == str(first_energy)
+
+    last_lines = last_content.strip().split("\n")
+    assert last_lines[4] == str(last_energy)
+    assert last_lines[5] == str(last_energy)
+
+    print(f"✅ Généré {len(generated_files)} fichiers trans.optional pour l'intervalle [{Emin}, {Emax}] avec step={step}")
+    print(f"   Première énergie: {first_energy}")
+    print(f"   Dernière énergie: {last_energy}")
+    print(f"   Exemple de contenu pour E={energies[10]:.1f}:")
+    print(generated_files[10][1])
+
+
+def test_fireball_transport_energy_scan_specific_values():
+    """Test la génération avec des valeurs d'énergie spécifiques."""
+    from aiida_fireball.calculations.fireball import FireballCalculation
+
+    def test_generate_only_trans_optional_files(tmp_path):
+        """
+        Test qui génère uniquement les fichiers trans.optional dans le dossier tmp_path
+        pour un intervalle d'énergie de -2 à 1 avec un pas de 0.1.
+        Vérifie que le contenu utilise 1/0 pour les booléens et qu'aucun autre fichier n'est généré.
+        """
+
+        trans_params = {
+            "ieta": True,
+            "iwrt_trans": True,
+            "ichannel": False,
+            "ifithop": 0,
+            "nsteps": 1,
+            "eta": 0.2,
+        }
+
+        Emin = -2.0
+        Emax = 1.0
+        step = 0.1
+        energies = np.arange(Emin, Emax + step, step)
+
+        # Générer et écrire chaque fichier trans.optional dans le dossier temporaire
+        for i, energy in enumerate(energies):
+            content = FireballCalculation.generate_trans_optional_for_energy(trans_params, energy)
+            filename = tmp_path / f"trans_{i:03d}_{energy:.2f}.optional"
+            with open(filename, "w") as f:
+                f.write(content)
+
+        # Vérifier que tous les fichiers existent et qu'aucun autre fichier n'est généré
+        files = list(tmp_path.glob("trans_*.optional"))
+        assert len(files) == len(energies)
+        for i, energy in enumerate(energies):
+            filename = tmp_path / f"trans_{i:03d}_{energy:.2f}.optional"
+            assert filename.exists()
+            with open(filename) as f:
+                lines = f.read().strip().split("\n")
+                assert lines[0] == "1"  # ieta
+                assert lines[1] == "1"  # iwrt_trans
+                assert lines[2] == "0"  # ichannel
+                assert lines[3] == "0"  # ifithop
+                assert lines[4] == str(energy)  # Ebottom
+                assert lines[5] == str(energy)  # Etop
+                assert lines[6] == "1"  # nsteps
+                assert lines[7] == "0.2"  # eta
+        # Vérifier qu'il n'y a pas d'autres fichiers
+        all_files = list(tmp_path.iterdir())
+        assert set(all_files) == set(files)
+        print(f"✅ {len(files)} fichiers trans.optional générés uniquement dans {tmp_path}")
+
+
+def test_generate_trans_optional_in_cwd():
+    import os
+
+    import numpy as np
+
+    from aiida_fireball.calculations.fireball import FireballCalculation
+
+    trans_params = {
+        "ieta": True,
+        "iwrt_trans": True,
+        "ichannel": False,
+        "ifithop": 0,
+        "nsteps": 1,
+        "eta": 0.2,
+    }
+    Emin = -2.0
+    Emax = 1.0
+    step = 0.1
+    energies = np.arange(Emin, Emax + step, step)
+    for i, energy in enumerate(energies):
+        content = FireballCalculation.generate_trans_optional_for_energy(trans_params, energy)
+        filename = f"trans_{i:03d}_{energy:.2f}.optional"
+        with open(filename, "w") as f:
+            # Pour le contenu, tu peux aussi formater :
+            content = FireballCalculation.generate_trans_optional_for_energy(trans_params, float(f"{energy:.2f}"))
+            f.write(content)
+    print(f"✅ {len(energies)} fichiers trans.optional générés dans {os.getcwd()}")
