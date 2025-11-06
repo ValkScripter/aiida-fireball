@@ -20,7 +20,7 @@ class FireballParser(Parser):
 
     success_string = "(FIREBALL RUNTIME)|(That`sall for now)"
 
-    def parse(self, **kwargs) -> Optional[ExitCode]:
+    def parse(self, **kwargs):
         """Parse outputs and store results in the database."""
         logs = get_logging_container()
 

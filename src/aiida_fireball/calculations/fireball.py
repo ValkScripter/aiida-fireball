@@ -62,7 +62,7 @@ class FireballCalculation(CalcJob):
         spec.input("metadata.options.output_filename", valid_type=str, default=cls._DEFAULT_OUTPUT_FILE)
         spec.input("metadata.options.withmpi", valid_type=bool, default=False)
         spec.input("parent_folder", valid_type=RemoteData, required=False, help="The parent remote folder to restart from.")
-        spec.input("metadata.options.resources", valid_type=dict, default={"num_machines": 1, "num_cores_per_machine": 1})
+        spec.input("metadata.options.resources", valid_type=dict, default=lambda: {"num_machines": 1, "num_cores_per_machine": 1})
         # spec.inputs["metadata"]["options"]["resources"].default = lambda: {
         #     "num_machines": 1,
         #     "num_cores_per_machine": 1,
@@ -144,7 +144,6 @@ class FireballCalculation(CalcJob):
 
         if "OPTION" in parameters and "iquench" in parameters["OPTION"] and parameters["OPTION"]["iquench"] in [-5, -4]:
             if "CGOPT" not in settings:
-                messages.append("CGOPT setting is required when iquench is set to -5 or -4.")
                 settings.setdefault("CGOPT", {})
 
         # Validate the FIXED_COORDS setting

@@ -71,17 +71,17 @@ def validate_dos_params(value, settings: dict, parameters: dict) -> list[str]:
             "Emin_tip": 0.0,
             "Emax_tip": 0.0,
         }
-        types = [
-            int,
-            int,
-            float,
-            int,
-            float,
-            float,
-            int,
-            float,
-            float,
-        ]
+        types = {
+            "first_atom_index": int,
+            "last_atom_index": int,
+            "eta": float,
+            "n_energy_steps": int,
+            "Emin": float,
+            "Emax": float,
+            "iwrttip": int,
+            "Emin_tip": float,
+            "Emax_tip": float,
+        }
         # Emin and Emax are in eV and are relative to the Fermi level:
         # conversion to Fireball format will be performed
         # There will be (n_energy_steps + 1) energy points in the output DOS file
@@ -92,7 +92,9 @@ def validate_dos_params(value, settings: dict, parameters: dict) -> list[str]:
         for key, default in defaults.items():
             dos_params.setdefault(key, default)
 
-        for key, val, type_ in zip(dos_params.keys(), dos_params.values(), types):
+        for key in valid_keys:
+            val = dos_params[key]
+            type_ = types[key]
             try:
                 dos_params[key] = type_(val)
             except ValueError:
@@ -156,15 +158,15 @@ def validate_cgopt_params(value, settings: dict, parameters: dict) -> list[str]:
             "min_int_steps": 0,
             "switch_MD": 0,
         }
-        types = [
-            float,
-            float,
-            float,
-            float,
-            int,
-            int,
-            int,
-        ]
+        types = {
+            "drmax": float,
+            "dummy": float,
+            "energy_tol": float,
+            "force_tol": float,
+            "max_steps": int,
+            "min_int_steps": int,
+            "switch_MD": int,
+        }
         for key in cgopt_params:
             if key not in valid_keys:
                 messages.append(f"Invalid key '{key}' in the 'CGOPT' namelist. Valid keys are: {valid_keys}")
@@ -172,7 +174,9 @@ def validate_cgopt_params(value, settings: dict, parameters: dict) -> list[str]:
         for key, val in defaults.items():
             cgopt_params.setdefault(key, val)
 
-        for key, val, type_ in zip(cgopt_params.keys(), cgopt_params.values(), types):
+        for key in valid_keys:
+            type_ = types[key]
+            val = cgopt_params[key]
             try:
                 cgopt_params[key] = type_(val)
             except ValueError:
