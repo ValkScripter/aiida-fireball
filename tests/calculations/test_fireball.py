@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for the `FireballCalculation` class."""
 
+import io
 import os
 import re
 
@@ -18,6 +19,22 @@ from aiida_fireball.calculations.fireball import FireballCalculation
 def add_fireball_entry_point(entry_points):
     """Add the `FireballCalculation` entry point in function scope."""
     entry_points.add(FireballCalculation, "aiida.calculations:fireball.fireball")
+
+
+@pytest.fixture
+def generate_structure_with_tips():
+    """Return a `StructureData` with two Au(79) tip groups flanking a central molecule."""
+
+    def _generate_structure_with_tips():
+        structure = orm.StructureData(cell=[[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 20.0]])
+        structure.append_atom(position=(0.0, 0.0, 0.0), symbols="Au", name="Au")
+        structure.append_atom(position=(0.0, 0.0, 1.0), symbols="Au", name="Au")  # last atom of first tip -> z1
+        structure.append_atom(position=(0.0, 0.0, 5.0), symbols="C", name="C")  # molecule
+        structure.append_atom(position=(0.0, 0.0, 9.0), symbols="Au", name="Au")  # first atom of second tip -> z2
+        structure.append_atom(position=(0.0, 0.0, 10.0), symbols="Au", name="Au")
+        return structure
+
+    return _generate_structure_with_tips
 
 
 def test_calculation():
@@ -269,3 +286,78 @@ def test_fireball_dos_settings(
     with fixture_sandbox.open("fireball.in") as handle:
         input_written = handle.read()
     file_regression.check(input_written, encoding="utf-8", extension=".in")
+
+
+def test_fireball_retrieve_list(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that `CHARGES` is always included in the `retrieve_list`."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    calc_info = generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert "CHARGES" in calc_info.retrieve_list
+
+
+def test_fireball_bias(fixture_sandbox, generate_calc_job, generate_inputs_fireball, generate_structure_with_tips, file_regression):
+    """Test a `FireballCalculation` with `OPTION.ibias = 1` writes `bias.optional`."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    inputs["structure"] = generate_structure_with_tips()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["ibias"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+    inputs["bias"] = orm.Float(0.5)
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert "bias.optional" in fixture_sandbox.get_content_list()
+
+    with fixture_sandbox.open("bias.optional") as handle:
+        bias_written = handle.read()
+    file_regression.check(bias_written, encoding="utf-8", extension=".bias")
+
+
+def test_fireball_bias_missing_input(fixture_sandbox, generate_calc_job, generate_inputs_fireball, generate_structure_with_tips):
+    """Test that `ibias = 1` without a `bias` input raises a validation error."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    inputs["structure"] = generate_structure_with_tips()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["ibias"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+
+    error_message = "The `bias` input is required when `ibias` is set to 1 in the `OPTION` namelist."
+
+    with pytest.raises(ValueError, match=re.escape(error_message)):
+        generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+
+def test_fireball_bias_missing_tips(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that `ibias = 1` with a structure lacking two Au tip groups raises a validation error."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()  # default structure is 2D-graphene, no Au atoms
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["ibias"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+    inputs["bias"] = orm.Float(0.5)
+
+    error_message = "Could not find two separate Au (Z=79) tip groups in the structure to compute the bias z1/z2 positions."
+
+    with pytest.raises(ValueError, match=re.escape(error_message)):
+        generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+
+def test_fireball_initial_charges(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that providing `initial_charges` adds it to the `local_copy_list` as `CHARGES`."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    charges_file = orm.SinglefileData(file=io.BytesIO(b"dummy charges"), filename="CHARGES")
+    inputs["initial_charges"] = charges_file
+
+    calc_info = generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert (charges_file.uuid, "CHARGES", "CHARGES") in calc_info.local_copy_list

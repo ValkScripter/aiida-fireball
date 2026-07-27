@@ -53,6 +53,12 @@ class FireballParser(Parser):
         if output_trajectory:
             self.out("output_trajectory", output_trajectory)
 
+        # Parse the 'CHARGES' file from the retrieved folder, if present, and store it as 'output_charges'
+        output_charges, logs = self.parse_output_charges(logs)
+        self.emit_logs(logs, ignore=None)
+        if output_charges:
+            self.out("output_charges", output_charges)
+
     def parse_stdout(self, logs: AttributeDict) -> Tuple[dict, AttributeDict]:
         """Parse the stdout content of a Fireball calculation."""
         output_filename = self.node.get_option("output_filename")
@@ -186,12 +192,23 @@ class FireballParser(Parser):
             symbols=symbols,
             positions=positions,
             cells=cells,
+            pbc=self.node.inputs.structure.pbc,
             times=times,
         )
         trajectory.set_array("temperatures", temperatures)
         trajectory.set_array("energies", energies)
 
         return trajectory, logs
+
+    def parse_output_charges(self, logs: AttributeDict) -> tuple[Optional[orm.SinglefileData], AttributeDict]:
+        """Parse the 'CHARGES' file from the retrieved folder, if present, and wrap it in a 'SinglefileData'."""
+        if "CHARGES" not in self.retrieved.base.repository.list_object_names():
+            return None, logs
+
+        with self.retrieved.base.repository.open("CHARGES", "rb") as handle:
+            charges = orm.SinglefileData(file=handle, filename="CHARGES")
+
+        return charges, logs
 
     def emit_logs(self, logs: Union[list[AttributeDict], tuple[AttributeDict], AttributeDict], ignore: Optional[list] = None) -> None:
         """Emit the messages in one or multiple "log dictionaries" through the logger of the parser.

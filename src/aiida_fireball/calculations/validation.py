@@ -4,6 +4,66 @@ from typing import Optional
 
 import numpy
 
+AU_ATOMIC_NUMBER = 79
+
+
+def find_bias_z_positions(structure) -> tuple[float, float]:
+    """Find the z-positions of the two Au tips flanking the central molecule.
+
+    Assumes the structure contains exactly two contiguous runs of Au (Z=79) atoms, the first one being
+    one tip and the second one being the other tip, with the molecule (or any other non-Au atoms) in between.
+
+    :param structure: the `aiida.orm.StructureData` to inspect.
+    :return: a tuple ``(z1, z2)`` where ``z1`` is the z-position of the last Au atom of the first tip and
+        ``z2`` is the z-position of the first Au atom of the second tip.
+    """
+    ase_structure = structure.get_ase()
+    numbers = ase_structure.get_atomic_numbers()
+    positions = ase_structure.get_positions()
+
+    runs = []
+    index, n_atoms = 0, len(numbers)
+    while index < n_atoms:
+        if numbers[index] == AU_ATOMIC_NUMBER:
+            start = index
+            while index < n_atoms and numbers[index] == AU_ATOMIC_NUMBER:
+                index += 1
+            runs.append((start, index - 1))
+        else:
+            index += 1
+
+    if len(runs) < 2:
+        raise ValueError("Could not find two separate Au (Z=79) tip groups in the structure to compute the bias z1/z2 positions.")
+
+    z1 = float(positions[runs[0][1]][2])
+    z2 = float(positions[runs[1][0]][2])
+
+    return z1, z2
+
+
+def validate_bias_params(value, settings: dict, parameters: dict) -> list[str]:
+    """Validate the ``bias`` input port required when ``OPTION.ibias`` is set to 1.
+
+    :param value: The entire inputs namespace.
+    :param settings: The settings dictionary.
+    :param parameters: The parameters dictionary.
+    :return: A list of error messages, empty if no errors.
+    """
+    messages = []
+
+    ibias = parameters.get("OPTION", {}).get("ibias")
+
+    if ibias == 1:
+        if "bias" not in value:
+            messages.append("The `bias` input is required when `ibias` is set to 1 in the `OPTION` namelist.")
+        if "structure" in value:
+            try:
+                find_bias_z_positions(value["structure"])
+            except ValueError as exception:
+                messages.append(str(exception))
+
+    return messages
+
 
 def validate_fixed_coords(value, settings: dict, parameters: dict) -> list[str]:
     """Validate the ``fixed_coords`` input port.

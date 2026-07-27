@@ -6,10 +6,10 @@ import numpy
 from aiida.common.datastructures import CalcInfo, CodeInfo
 from aiida.common.folders import Folder
 from aiida.engine import CalcJob
-from aiida.orm import BandsData, Dict, KpointsData, RemoteData, StructureData, TrajectoryData
+from aiida.orm import BandsData, Dict, Float, KpointsData, RemoteData, SinglefileData, StructureData, TrajectoryData
 
 from .utils import _lowercase_dict, _uppercase_dict, conv_to_fortran, convert_input_to_namelist_entry
-from .validation import validate_cgopt_params, validate_dos_params, validate_fixed_coords
+from .validation import find_bias_z_positions, validate_bias_params, validate_cgopt_params, validate_dos_params, validate_fixed_coords
 
 
 class FireballCalculation(CalcJob):
@@ -57,11 +57,18 @@ class FireballCalculation(CalcJob):
         spec.input("kpoints", valid_type=KpointsData, help="The input kpoints.")
         spec.input("fdata_remote", valid_type=RemoteData, help="Remote folder containing the Fdata files.")
         spec.input("settings", valid_type=Dict, required=False, help="Additional input parameters.")
+        spec.input("bias", valid_type=Float, required=False, help="Bias voltage. Required when `OPTION.ibias` is set to 1.")
         spec.input("metadata.options.parser_name", valid_type=str, default="fireball.fireball")
         spec.input("metadata.options.input_filename", valid_type=str, default=cls._DEFAULT_INPUT_FILE)
         spec.input("metadata.options.output_filename", valid_type=str, default=cls._DEFAULT_OUTPUT_FILE)
         spec.input("metadata.options.withmpi", valid_type=bool, default=False)
         spec.input("parent_folder", valid_type=RemoteData, required=False, help="The parent remote folder to restart from.")
+        spec.input(
+            "initial_charges",
+            valid_type=SinglefileData,
+            required=False,
+            help="A previous calculation's `output_charges` to seed this run's `CHARGES` file. Independent from `parent_folder`.",
+        )
         spec.input("metadata.options.resources", valid_type=dict, default=lambda: {"num_machines": 1, "num_cores_per_machine": 1})
         # spec.inputs["metadata"]["options"]["resources"].default = lambda: {
         #     "num_machines": 1,
@@ -90,6 +97,12 @@ class FireballCalculation(CalcJob):
         )
         spec.output("output_kpoints", valid_type=KpointsData, required=False)
         spec.output("output_atomic_occupations", valid_type=Dict, required=False)
+        spec.output(
+            "output_charges",
+            valid_type=SinglefileData,
+            required=False,
+            help="The `CHARGES` file produced by the calculation, if present.",
+        )
         spec.default_output_node = "output_parameters"
 
         # Exit codes
@@ -155,6 +168,9 @@ class FireballCalculation(CalcJob):
         # Validate the CGOPT settings
         messages.extend(validate_cgopt_params(value, settings, parameters))
 
+        # Validate the `bias` input required by OPTION.ibias
+        messages.extend(validate_bias_params(value, settings, parameters))
+
         # Update settings with the new values
         value["settings"] = Dict(settings)
         # Update parameters with the new values
@@ -217,6 +233,16 @@ class FireballCalculation(CalcJob):
             cgopt_params: dict = settings.pop("CGOPT")
             write_in_folder(folder, "cgopt.optional", self.generate_cgopt_optional(cgopt_params))
 
+        # Write the bias.optional file if the OPTION.ibias flag is enabled
+        if self.inputs.parameters.get_dict().get("OPTION", {}).get("ibias") == 1:
+            z1, z2 = find_bias_z_positions(self.inputs.structure)
+            write_in_folder(folder, "bias.optional", self.generate_bias_optional(self.inputs.bias.value, z1, z2))
+
+        # Copy a previous calculation's `output_charges` as this run's `CHARGES` file, if provided.
+        # This is independent from the `parent_folder`-based restart mechanism below.
+        if "initial_charges" in self.inputs:
+            local_copy_list.append((self.inputs.initial_charges.uuid, self.inputs.initial_charges.filename, "CHARGES"))
+
         # operations for restart
         symlink = settings.pop("PARENT_FOLDER_SYMLINK", self._default_symlink_usage)  # a boolean
         if symlink:
@@ -258,6 +284,7 @@ class FireballCalculation(CalcJob):
         calcinfo.retrieve_list = []
         calcinfo.retrieve_list.append(self.metadata.options.output_filename)
         calcinfo.retrieve_list.append(self._CRASH_FILE)
+        calcinfo.retrieve_list.append("CHARGES")
         calcinfo.retrieve_list.extend(settings.pop("ADDITIONAL_RETRIEVE_LIST", []))
         calcinfo.retrieve_list.extend(self._internal_retrieve_list)
 
@@ -371,6 +398,15 @@ class FireballCalculation(CalcJob):
         file_lines.append(f"{dos_params['iwrttip']:1d}\t! iwrttip=1 writes the file tip_e_str.inp")
         file_lines.append(f"{dos_params['Emin_tip']:6f}\t{dos_params['Emax_tip']:6f}\t! Emin_tip and Emax_tip")
         file_lines.append(f"{dos_params['eta']:.6f}\t! eta")
+
+        return "\n".join(file_lines) + "\n"
+
+    def generate_bias_optional(self, bias: float, z1: float, z2: float) -> str:
+        """Generate the content of the file bias.optional"""
+        file_lines = []
+        file_lines.append(f"{conv_to_fortran(bias)} \t! bias = Bias voltage")
+        file_lines.append(f"{conv_to_fortran(z1)} \t! z1 = z-position of the last Au atom of the first tip")
+        file_lines.append(f"{conv_to_fortran(z2)} \t! z2 = z-position of the first Au atom of the second tip")
 
         return "\n".join(file_lines) + "\n"
 

@@ -61,5 +61,9 @@ output_trajectory:
   - 1
   array|times:
   - 1
+  pbc:
+  - true
+  - true
+  - false
   symbols:
   - Au
