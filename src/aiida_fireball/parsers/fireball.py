@@ -59,6 +59,11 @@ class FireballParser(Parser):
         if output_charges:
             self.out("output_charges", output_charges)
 
+        # Parse the 'conductance.dat' file from the retrieved folder, if present, and store it as 'output_conductance'
+        output_conductance = self.parse_conductance()
+        if output_conductance:
+            self.out("output_conductance", output_conductance)
+
     def parse_stdout(self, logs: AttributeDict) -> Tuple[dict, AttributeDict]:
         """Parse the stdout content of a Fireball calculation."""
         output_filename = self.node.get_option("output_filename")
@@ -209,6 +214,45 @@ class FireballParser(Parser):
             charges = orm.SinglefileData(file=handle, filename="CHARGES")
 
         return charges, logs
+
+    def parse_conductance(self) -> Optional[orm.Dict]:
+        """Parse the 'conductance.dat' file from the retrieved folder, if present, and store it as 'output_conductance'.
+
+        The file has one data row per energy step (`<step_index> <energy_eV> <transmission>`), followed by a final
+        `Go = <value> [2*e^2/h]` line with the conductance at the last energy point. Parsed defensively: if the file
+        is missing the `Go = ...` line or is otherwise malformed, a warning is logged and no output is attached.
+        """
+        if "conductance.dat" not in self.retrieved.base.repository.list_object_names():
+            return None
+
+        with self.retrieved.base.repository.open("conductance.dat", "r") as handle:
+            lines = [line.strip() for line in handle.readlines() if line.strip()]
+
+        go_match = re.compile(r"Go\s*=\s*([\d.eE+-]+)")
+
+        steps = []
+        go_value = None
+
+        for line in lines:
+            if line.startswith("Go"):
+                match = go_match.match(line)
+                if match:
+                    go_value = float(match.group(1))
+                continue
+
+            fields = line.split()
+            if len(fields) != 3:
+                self.logger.warning(f"Could not parse a line of 'conductance.dat': '{line}'")
+                continue
+
+            step_index, energy, transmission = fields
+            steps.append({"step": int(step_index), "energy": float(energy), "transmission": float(transmission)})
+
+        if go_value is None:
+            self.logger.warning("Could not find the 'Go = ...' line in 'conductance.dat'; skipping 'output_conductance'.")
+            return None
+
+        return orm.Dict({"steps": steps, "conductance_quantum_go": go_value})
 
     def emit_logs(self, logs: Union[list[AttributeDict], tuple[AttributeDict], AttributeDict], ignore: Optional[list] = None) -> None:
         """Emit the messages in one or multiple "log dictionaries" through the logger of the parser.

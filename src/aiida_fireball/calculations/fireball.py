@@ -9,7 +9,14 @@ from aiida.engine import CalcJob
 from aiida.orm import BandsData, Dict, Float, KpointsData, RemoteData, SinglefileData, StructureData, TrajectoryData
 
 from .utils import _lowercase_dict, _uppercase_dict, conv_to_fortran, convert_input_to_namelist_entry
-from .validation import find_bias_z_positions, validate_bias_params, validate_cgopt_params, validate_dos_params, validate_fixed_coords
+from .validation import (
+    find_bias_z_positions,
+    validate_bias_params,
+    validate_cgopt_params,
+    validate_dos_params,
+    validate_fixed_coords,
+    validate_transport_params,
+)
 
 
 class FireballCalculation(CalcJob):
@@ -103,6 +110,12 @@ class FireballCalculation(CalcJob):
             required=False,
             help="The `CHARGES` file produced by the calculation, if present.",
         )
+        spec.output(
+            "output_conductance",
+            valid_type=Dict,
+            required=False,
+            help="The per-step (energy, transmission) pairs and final Go value parsed from `conductance.dat`, if present.",
+        )
         spec.default_output_node = "output_parameters"
 
         # Exit codes
@@ -171,6 +184,9 @@ class FireballCalculation(CalcJob):
         # Validate the `bias` input required by OPTION.ibias
         messages.extend(validate_bias_params(value, settings, parameters))
 
+        # Validate the TRANS/INTERACTION/ETA settings required by OPTION.itrans
+        messages.extend(validate_transport_params(value, settings, parameters))
+
         # Update settings with the new values
         value["settings"] = Dict(settings)
         # Update parameters with the new values
@@ -238,6 +254,16 @@ class FireballCalculation(CalcJob):
             z1, z2 = find_bias_z_positions(self.inputs.structure)
             write_in_folder(folder, "bias.optional", self.generate_bias_optional(self.inputs.bias.value, z1, z2))
 
+        # Write the trans.optional, interaction.optional and eta.optional files if the OPTION.itrans flag is enabled.
+        # The three files are always written together; there is no conditional logic among them.
+        if self.inputs.parameters.get_dict().get("OPTION", {}).get("itrans") == 1:
+            trans_params: dict = settings.pop("TRANS")
+            interaction_params: dict = settings.pop("INTERACTION")
+            eta_params: dict = settings.pop("ETA")
+            write_in_folder(folder, "trans.optional", self.generate_trans_optional(trans_params))
+            write_in_folder(folder, "interaction.optional", self.generate_interaction_optional(interaction_params))
+            write_in_folder(folder, "eta.optional", self.generate_eta_optional(eta_params))
+
         # Copy a previous calculation's `output_charges` as this run's `CHARGES` file, if provided.
         # This is independent from the `parent_folder`-based restart mechanism below.
         if "initial_charges" in self.inputs:
@@ -285,6 +311,7 @@ class FireballCalculation(CalcJob):
         calcinfo.retrieve_list.append(self.metadata.options.output_filename)
         calcinfo.retrieve_list.append(self._CRASH_FILE)
         calcinfo.retrieve_list.append("CHARGES")
+        calcinfo.retrieve_list.append("conductance.dat")
         calcinfo.retrieve_list.extend(settings.pop("ADDITIONAL_RETRIEVE_LIST", []))
         calcinfo.retrieve_list.extend(self._internal_retrieve_list)
 
@@ -407,6 +434,47 @@ class FireballCalculation(CalcJob):
         file_lines.append(f"{conv_to_fortran(bias)} \t! bias = Bias voltage")
         file_lines.append(f"{conv_to_fortran(z1)} \t! z1 = z-position of the last atom of the first tip")
         file_lines.append(f"{conv_to_fortran(z2)} \t! z2 = z-position of the first atom of the second tip")
+
+        return "\n".join(file_lines) + "\n"
+
+    def generate_trans_optional(self, trans_params: dict) -> str:
+        """Generate the content of the file trans.optional"""
+        energy = trans_params["energy"]
+        file_lines = []
+        file_lines.append("1 \t! ieta (use extra imaginary part of selected part )")
+        file_lines.append("1 \t! iwrt_trans (dump extra information)")
+        file_lines.append("1 \t! ichannel (perform eigenchannel analysis)")
+        file_lines.append("0 \t! ifithop")
+        file_lines.append(f"{conv_to_fortran(energy)} \t! bottom energy (eV)")
+        file_lines.append(f"{conv_to_fortran(energy)} \t! top energy (eV)")
+        file_lines.append("1 \t! number of energy steps")
+        file_lines.append(f"{conv_to_fortran(trans_params['imaginary_part'])} \t! imaginary_part")
+
+        return "\n".join(file_lines) + "\n"
+
+    def generate_interaction_optional(self, interaction_params: dict) -> str:
+        """Generate the content of the file interaction.optional"""
+        file_lines = []
+        for sample_key in ("sample1", "sample2"):
+            sample = interaction_params[sample_key]
+            start, end = sample["interval"]
+            n_atoms = end - start + 1
+            file_lines.append(f"0 \t! number of neighbor cells, {sample_key}")
+            file_lines.append(f"{n_atoms} \t! number of atoms, {sample_key}")
+            file_lines.append(f"1 \t! number of intervals defining the {sample_key}")
+            file_lines.append(f"{start} {end}")
+            file_lines.append(f"{sample['n_atoms_tip']} \t! number of atoms in the tip, {sample_key}")
+            file_lines.append(",".join(str(atom) for atom in sample["tip_atoms"]))
+
+        return "\n".join(file_lines) + "\n"
+
+    def generate_eta_optional(self, eta_params: dict) -> str:
+        """Generate the content of the file eta.optional"""
+        start, end = eta_params["interval"]
+        file_lines = []
+        file_lines.append(f"{conv_to_fortran(eta_params['eta_value'])} \t! eta_value")
+        file_lines.append("1 \t! number of intervals")
+        file_lines.append(f"{start} {end}")
 
         return "\n".join(file_lines) + "\n"
 

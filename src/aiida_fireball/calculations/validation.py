@@ -69,6 +69,61 @@ def validate_bias_params(value, settings: dict, parameters: dict) -> list[str]:
     return messages
 
 
+def validate_transport_params(value, settings: dict, parameters: dict) -> list[str]:
+    """Validate the transport settings required when ``OPTION.itrans`` is set to 1.
+
+    :param value: The entire inputs namespace.
+    :param settings: The settings dictionary.
+    :param parameters: The parameters dictionary.
+    :return: A list of error messages, empty if no errors.
+    """
+    messages = []
+
+    itrans = parameters.get("OPTION", {}).get("itrans")
+
+    if itrans != 1:
+        return messages
+
+    trans_params = settings.get("TRANS")
+    interaction_params = settings.get("INTERACTION")
+    eta_params = settings.get("ETA")
+
+    if trans_params is None:
+        messages.append("The `settings['TRANS']` dictionary is required when `itrans` is set to 1 in the `OPTION` namelist.")
+
+    if interaction_params is None:
+        messages.append("The `settings['INTERACTION']` dictionary is required when `itrans` is set to 1 in the `OPTION` namelist.")
+    else:
+        for sample_key in ("sample1", "sample2"):
+            sample = interaction_params.get(sample_key)
+            if sample is None:
+                messages.append(f"The `settings['INTERACTION']['{sample_key}']` dictionary is required when `itrans` is set to 1.")
+                continue
+
+            interval = sample.get("interval")
+            if interval is None or len(interval) != 2:
+                messages.append(f"The `interval` for `settings['INTERACTION']['{sample_key}']` must be a list of 2 values `[start, end]`.")
+
+            tip_atoms = sample.get("tip_atoms", [])
+            n_atoms_tip = sample.get("n_atoms_tip")
+            if not tip_atoms:
+                messages.append(f"The `tip_atoms` list for `settings['INTERACTION']['{sample_key}']` must not be empty.")
+            elif n_atoms_tip != len(tip_atoms):
+                messages.append(
+                    f"The declared `n_atoms_tip` ({n_atoms_tip}) for `settings['INTERACTION']['{sample_key}']` does not match "
+                    f"the number of `tip_atoms` provided ({len(tip_atoms)})."
+                )
+
+    if eta_params is None:
+        messages.append("The `settings['ETA']` dictionary is required when `itrans` is set to 1 in the `OPTION` namelist.")
+    else:
+        interval = eta_params.get("interval")
+        if interval is None or len(interval) != 2:
+            messages.append("The `interval` for `settings['ETA']` must be a list of 2 values `[start, end]`.")
+
+    return messages
+
+
 def validate_fixed_coords(value, settings: dict, parameters: dict) -> list[str]:
     """Validate the ``fixed_coords`` input port.
 

@@ -305,13 +305,14 @@ def test_fireball_dos_settings(
 
 
 def test_fireball_retrieve_list(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
-    """Test that `CHARGES` is always included in the `retrieve_list`."""
+    """Test that `CHARGES` and `conductance.dat` are always included in the `retrieve_list`."""
     entry_point_name = "fireball.fireball"
 
     inputs = generate_inputs_fireball()
     calc_info = generate_calc_job(fixture_sandbox, entry_point_name, inputs)
 
     assert "CHARGES" in calc_info.retrieve_list
+    assert "conductance.dat" in calc_info.retrieve_list
 
 
 def test_fireball_bias(fixture_sandbox, generate_calc_job, generate_inputs_fireball, generate_structure_with_tips, file_regression):
@@ -399,3 +400,114 @@ def test_fireball_initial_charges(fixture_sandbox, generate_calc_job, generate_i
     calc_info = generate_calc_job(fixture_sandbox, entry_point_name, inputs)
 
     assert (charges_file.uuid, "CHARGES", "CHARGES") in calc_info.local_copy_list
+
+
+def _generate_transport_settings():
+    """Return a valid `settings` dict for `OPTION.itrans = 1`."""
+    return {
+        "TRANS": {
+            "energy": -0.5,
+            "imaginary_part": 0.001,
+        },
+        "INTERACTION": {
+            "sample1": {"interval": [1, 2], "n_atoms_tip": 1, "tip_atoms": [1]},
+            "sample2": {"interval": [1, 2], "n_atoms_tip": 1, "tip_atoms": [2]},
+        },
+        "ETA": {
+            "eta_value": 0.001,
+            "interval": [1, 2],
+        },
+    }
+
+
+def test_fireball_transport(fixture_sandbox, generate_calc_job, generate_inputs_fireball, file_regression):
+    """Test that `itrans = 1` writes `trans.optional`, `interaction.optional` and `eta.optional` together."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["itrans"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+    inputs["settings"] = orm.Dict(_generate_transport_settings())
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    content_list = fixture_sandbox.get_content_list()
+    assert "trans.optional" in content_list
+    assert "interaction.optional" in content_list
+    assert "eta.optional" in content_list
+
+    with fixture_sandbox.open("trans.optional") as handle:
+        trans_written = handle.read()
+    file_regression.check(trans_written, encoding="utf-8", extension=".trans")
+
+    with fixture_sandbox.open("interaction.optional") as handle:
+        interaction_written = handle.read()
+    file_regression.check(interaction_written, encoding="utf-8", extension=".interaction")
+
+    with fixture_sandbox.open("eta.optional") as handle:
+        eta_written = handle.read()
+    file_regression.check(eta_written, encoding="utf-8", extension=".eta")
+
+
+def test_fireball_interaction_large_system(fixture_sandbox, generate_calc_job, generate_inputs_fireball, file_regression):
+    """Test `interaction.optional` generation for a larger, more realistic system (75 atoms total)."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["itrans"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+
+    settings = _generate_transport_settings()
+    tip_atoms_1 = list(range(1, 6))  # 5 tip atoms at the start of sample1
+    tip_atoms_2 = list(range(71, 76))  # 5 tip atoms at the end of sample2
+    settings["INTERACTION"] = {
+        "sample1": {"interval": [1, 40], "n_atoms_tip": len(tip_atoms_1), "tip_atoms": tip_atoms_1},
+        "sample2": {"interval": [41, 75], "n_atoms_tip": len(tip_atoms_2), "tip_atoms": tip_atoms_2},
+    }
+    inputs["settings"] = orm.Dict(settings)
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert "interaction.optional" in fixture_sandbox.get_content_list()
+
+    with fixture_sandbox.open("interaction.optional") as handle:
+        interaction_written = handle.read()
+    file_regression.check(interaction_written, encoding="utf-8", extension=".interaction")
+
+
+def test_fireball_transport_missing_settings(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that `itrans = 1` without the `TRANS`/`INTERACTION`/`ETA` settings raises a validation error."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["itrans"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+
+    error_message = "The `settings['TRANS']` dictionary is required when `itrans` is set to 1 in the `OPTION` namelist."
+
+    with pytest.raises(ValueError, match=re.escape(error_message)):
+        generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+
+def test_fireball_transport_inconsistent_tip_atoms(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that a mismatched `n_atoms_tip` vs `tip_atoms` length raises a validation error."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["itrans"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+
+    settings = _generate_transport_settings()
+    settings["INTERACTION"]["sample1"]["n_atoms_tip"] = 2  # inconsistent with the single tip atom provided
+    inputs["settings"] = orm.Dict(settings)
+
+    error_message = (
+        "The declared `n_atoms_tip` (2) for `settings['INTERACTION']['sample1']` does not match the number of `tip_atoms` provided (1)."
+    )
+
+    with pytest.raises(ValueError, match=re.escape(error_message)):
+        generate_calc_job(fixture_sandbox, entry_point_name, inputs)

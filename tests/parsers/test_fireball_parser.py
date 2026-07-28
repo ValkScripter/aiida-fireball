@@ -160,3 +160,45 @@ def test_fireball_no_output_charges(fixture_localhost, generate_calc_job_node, g
 
     assert calcfunction.is_finished_ok, calcfunction.exit_message
     assert "output_charges" not in results
+
+
+def test_fireball_output_conductance(fixture_localhost, generate_calc_job_node, generate_parser, generate_inputs, tmp_path):
+    """Test that a `conductance.dat` file present in the retrieved folder is parsed into `output_conductance`."""
+    name = "conductance"
+    entry_point_calc_job = "fireball.fireball"
+    entry_point_parser = "fireball.fireball"
+
+    node = generate_calc_job_node(entry_point_calc_job, fixture_localhost, name, generate_inputs())
+    parser: Parser = generate_parser(entry_point_parser)
+    results, calcfunction = parser.parse_from_node(node, store_provenance=False, retrieved_temporary_folder=str(tmp_path))
+
+    assert calcfunction.is_finished_ok, calcfunction.exit_message
+    assert "output_conductance" in results
+    assert isinstance(results["output_conductance"], orm.Dict)
+
+    output_conductance = results["output_conductance"].get_dict()
+    assert output_conductance["steps"] == [{"step": 1, "energy": 10.0, "transmission": 0.00091731}]
+    assert output_conductance["conductance_quantum_go"] == pytest.approx(0.91730568e-03)
+
+
+def test_fireball_no_output_conductance(fixture_localhost, generate_calc_job_node, generate_parser, generate_inputs):
+    """Test that no `output_conductance` is produced when `conductance.dat` is absent from the retrieved folder."""
+    name = "default"
+    entry_point_calc_job = "fireball.fireball"
+    entry_point_parser = "fireball.fireball"
+
+    retrieve_temporary_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp", "fireball", name)
+    retrieve_temporary_list = ["answer.bas", "answer.xyz"]
+
+    node = generate_calc_job_node(
+        entry_point_calc_job,
+        fixture_localhost,
+        name,
+        generate_inputs(),
+        retrieve_temporary=(retrieve_temporary_folder, retrieve_temporary_list),
+    )
+    parser: Parser = generate_parser(entry_point_parser)
+    results, calcfunction = parser.parse_from_node(node, store_provenance=False, retrieved_temporary_folder=retrieve_temporary_folder)
+
+    assert calcfunction.is_finished_ok, calcfunction.exit_message
+    assert "output_conductance" not in results
