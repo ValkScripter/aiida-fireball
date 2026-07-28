@@ -4,39 +4,43 @@ from typing import Optional
 
 import numpy
 
-AU_ATOMIC_NUMBER = 79
-
 
 def find_bias_z_positions(structure) -> tuple[float, float]:
-    """Find the z-positions of the two Au tips flanking the central molecule.
+    """Find the z-positions of the two tips flanking the central molecule.
 
-    Assumes the structure contains exactly two contiguous runs of Au (Z=79) atoms, the first one being
-    one tip and the second one being the other tip, with the molecule (or any other non-Au atoms) in between.
+    Assumes the structure is ordered as a contiguous run of tip1 atoms, followed by the central molecule (or
+    any other atoms), followed by a contiguous run of tip2 atoms. The tip1 element is taken from the first
+    site of the structure and the tip2 element from the last site; the two tips need not be the same element.
 
     :param structure: the `aiida.orm.StructureData` to inspect.
-    :return: a tuple ``(z1, z2)`` where ``z1`` is the z-position of the last Au atom of the first tip and
-        ``z2`` is the z-position of the first Au atom of the second tip.
+    :return: a tuple ``(z1, z2)`` where ``z1`` is the z-position of the last atom of the first tip run and
+        ``z2`` is the z-position of the first atom of the second tip run.
     """
     ase_structure = structure.get_ase()
     numbers = ase_structure.get_atomic_numbers()
     positions = ase_structure.get_positions()
+    n_atoms = len(numbers)
 
-    runs = []
-    index, n_atoms = 0, len(numbers)
-    while index < n_atoms:
-        if numbers[index] == AU_ATOMIC_NUMBER:
-            start = index
-            while index < n_atoms and numbers[index] == AU_ATOMIC_NUMBER:
-                index += 1
-            runs.append((start, index - 1))
-        else:
-            index += 1
+    if n_atoms == 0:
+        raise ValueError("Could not find two separate tip groups flanking a central molecule: the structure has no sites.")
 
-    if len(runs) < 2:
-        raise ValueError("Could not find two separate Au (Z=79) tip groups in the structure to compute the bias z1/z2 positions.")
+    tip1_number = numbers[0]
+    index = 0
+    while index < n_atoms and numbers[index] == tip1_number:
+        index += 1
+    tip1_end = index - 1
 
-    z1 = float(positions[runs[0][1]][2])
-    z2 = float(positions[runs[1][0]][2])
+    tip2_number = numbers[-1]
+    index = n_atoms - 1
+    while index >= 0 and numbers[index] == tip2_number:
+        index -= 1
+    tip2_start = index + 1
+
+    if tip1_end >= tip2_start:
+        raise ValueError("Could not find two separate tip groups flanking a central molecule to compute the bias z1/z2 positions.")
+
+    z1 = float(positions[tip1_end][2])
+    z2 = float(positions[tip2_start][2])
 
     return z1, z2
 

@@ -37,6 +37,22 @@ def generate_structure_with_tips():
     return _generate_structure_with_tips
 
 
+@pytest.fixture
+def generate_structure_with_different_tips():
+    """Return a `StructureData` with two tip groups of different elements (Pt and Ag) flanking a molecule."""
+
+    def _generate_structure_with_different_tips():
+        structure = orm.StructureData(cell=[[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 20.0]])
+        structure.append_atom(position=(0.0, 0.0, 0.0), symbols="Pt", name="Pt")
+        structure.append_atom(position=(0.0, 0.0, 1.0), symbols="Pt", name="Pt")  # last atom of first tip -> z1
+        structure.append_atom(position=(0.0, 0.0, 5.0), symbols="C", name="C")  # molecule
+        structure.append_atom(position=(0.0, 0.0, 9.0), symbols="Ag", name="Ag")  # first atom of second tip -> z2
+        structure.append_atom(position=(0.0, 0.0, 10.0), symbols="Ag", name="Ag")
+        return structure
+
+    return _generate_structure_with_different_tips
+
+
 def test_calculation():
     """Test the `FireballCalculation` load."""
     calc = CalculationFactory("fireball.fireball")
@@ -318,6 +334,28 @@ def test_fireball_bias(fixture_sandbox, generate_calc_job, generate_inputs_fireb
     file_regression.check(bias_written, encoding="utf-8", extension=".bias")
 
 
+def test_fireball_bias_different_tip_elements(
+    fixture_sandbox, generate_calc_job, generate_inputs_fireball, generate_structure_with_different_tips, file_regression
+):
+    """Test that `ibias = 1` works when the two tips are made of different, non-gold elements (Pt and Ag)."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    inputs["structure"] = generate_structure_with_different_tips()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["ibias"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+    inputs["bias"] = orm.Float(0.5)
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert "bias.optional" in fixture_sandbox.get_content_list()
+
+    with fixture_sandbox.open("bias.optional") as handle:
+        bias_written = handle.read()
+    file_regression.check(bias_written, encoding="utf-8", extension=".bias")
+
+
 def test_fireball_bias_missing_input(fixture_sandbox, generate_calc_job, generate_inputs_fireball, generate_structure_with_tips):
     """Test that `ibias = 1` without a `bias` input raises a validation error."""
     entry_point_name = "fireball.fireball"
@@ -344,7 +382,7 @@ def test_fireball_bias_missing_tips(fixture_sandbox, generate_calc_job, generate
     inputs["parameters"] = orm.Dict(parameters)
     inputs["bias"] = orm.Float(0.5)
 
-    error_message = "Could not find two separate Au (Z=79) tip groups in the structure to compute the bias z1/z2 positions."
+    error_message = "Could not find two separate tip groups flanking a central molecule to compute the bias z1/z2 positions."
 
     with pytest.raises(ValueError, match=re.escape(error_message)):
         generate_calc_job(fixture_sandbox, entry_point_name, inputs)

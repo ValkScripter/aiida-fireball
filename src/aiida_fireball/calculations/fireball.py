@@ -405,8 +405,8 @@ class FireballCalculation(CalcJob):
         """Generate the content of the file bias.optional"""
         file_lines = []
         file_lines.append(f"{conv_to_fortran(bias)} \t! bias = Bias voltage")
-        file_lines.append(f"{conv_to_fortran(z1)} \t! z1 = z-position of the last Au atom of the first tip")
-        file_lines.append(f"{conv_to_fortran(z2)} \t! z2 = z-position of the first Au atom of the second tip")
+        file_lines.append(f"{conv_to_fortran(z1)} \t! z1 = z-position of the last atom of the first tip")
+        file_lines.append(f"{conv_to_fortran(z2)} \t! z2 = z-position of the first atom of the second tip")
 
         return "\n".join(file_lines) + "\n"
 
