@@ -37,7 +37,6 @@ class FireballCalculation(CalcJob):
             "basisfile": _DEFAULT_BAS_FILE,
             "lvsfile": _DEFAULT_LVS_FILE,
             "kptpreference": _DEFAULT_KPTS_FILE,
-            "verbosity": 3,
         }
     }
 
@@ -203,15 +202,15 @@ class FireballCalculation(CalcJob):
         remote_copy_list = []
         remote_symlink_list = []
 
-        # Create Fdata subfolder
-        folder.get_subfolder(self._FDATA_SUBFOLDER, create=True)
-
-        # Symlink all files in the Fdata remote folder
+        # Symlink the whole Fdata remote folder as a single link (not one symlink per file):
+        # a per-file glob symlink multiplies the inode/file-count quota by the number of Fdata
+        # files for every submitted job, which can exhaust a cluster's file-count quota even
+        # though the byte-size cost is negligible.
         remote_symlink_list.append(
             (
                 self.inputs.fdata_remote.computer.uuid,
-                os.path.join(self.inputs.fdata_remote.get_remote_path(), "*"),
-                self._FDATA_SUBFOLDER,
+                self.inputs.fdata_remote.get_remote_path(),
+                self._FDATA_SUBFOLDER.rstrip("/"),
             )
         )
 
