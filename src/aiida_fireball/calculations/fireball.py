@@ -453,17 +453,30 @@ class FireballCalculation(CalcJob):
 
     def generate_interaction_optional(self, interaction_params: dict) -> str:
         """Generate the content of the file interaction.optional"""
+        total_atoms = len(self.inputs.structure.sites)
         file_lines = []
-        for sample_key in ("sample1", "sample2"):
-            sample = interaction_params[sample_key]
-            start, end = sample["interval"]
-            n_atoms = end - start + 1
-            file_lines.append(f"0 \t! number of neighbor cells, {sample_key}")
-            file_lines.append(f"{n_atoms} \t! number of atoms, {sample_key}")
-            file_lines.append(f"1 \t! number of intervals defining the {sample_key}")
-            file_lines.append(f"{start} {end}")
-            file_lines.append(f"{sample['n_atoms_tip']} \t! number of atoms in the tip, {sample_key}")
-            file_lines.append(",".join(str(atom) for atom in sample["tip_atoms"]))
+
+        sample1 = interaction_params["sample1"]
+        start1, end1 = sample1["interval"]
+        n_atoms_sample1 = end1 - start1 + 1
+        file_lines.append("0 \t! number of neighbor cells, sample1")
+        file_lines.append(f"{n_atoms_sample1} \t! number of atoms, sample1")
+        file_lines.append("1 \t! number of intervals defining the sample1")
+        file_lines.append(f"{start1} {end1}")
+        file_lines.append(f"{sample1['n_atoms_tip']} \t! number of atoms in the tip, sample1")
+        file_lines.append(",".join(str(atom) for atom in sample1["tip_atoms"]))
+
+        # sample2's atom count is whatever remains of the structure once sample1's atoms are
+        # accounted for, not the size of its own (tip-contact) interval.
+        sample2 = interaction_params["sample2"]
+        start2, end2 = sample2["interval"]
+        n_atoms_sample2 = total_atoms - n_atoms_sample1
+        file_lines.append("0 \t! number of neighbor cells, sample2")
+        file_lines.append(f"{n_atoms_sample2} \t! number of atoms, sample2")
+        file_lines.append("1 \t! number of intervals defining the sample2")
+        file_lines.append(f"{start2} {end2}")
+        file_lines.append(f"{sample2['n_atoms_tip']} \t! number of atoms in the tip, sample2")
+        file_lines.append(",".join(str(atom) for atom in sample2["tip_atoms"]))
 
         return "\n".join(file_lines) + "\n"
 
