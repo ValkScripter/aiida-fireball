@@ -5,7 +5,7 @@
 1 	! number of atoms in the tip, sample1
 1
 0 	! number of neighbor cells, sample2
-2 	! number of atoms, sample2
+0 	! number of atoms, sample2
 1 	! number of intervals defining the sample2
 1 2
 1 	! number of atoms in the tip, sample2

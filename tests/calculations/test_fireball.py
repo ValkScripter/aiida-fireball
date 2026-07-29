@@ -459,6 +459,13 @@ def test_fireball_interaction_large_system(fixture_sandbox, generate_calc_job, g
     parameters.setdefault("OPTION", {})["itrans"] = 1
     inputs["parameters"] = orm.Dict(parameters)
 
+    # `n_atoms` for sample2 is derived from the total atom count of the structure, so the
+    # structure must actually contain the 75 atoms the settings below refer to.
+    structure = orm.StructureData(cell=[[100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0]])
+    for i in range(75):
+        structure.append_atom(position=(0.0, 0.0, float(i)), symbols="C", name="C")
+    inputs["structure"] = structure
+
     settings = _generate_transport_settings()
     tip_atoms_1 = list(range(1, 6))  # 5 tip atoms at the start of sample1
     tip_atoms_2 = list(range(71, 76))  # 5 tip atoms at the end of sample2
