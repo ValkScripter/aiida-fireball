@@ -2,7 +2,6 @@
   basisfile = 'aiida.bas'
   kptpreference = 'aiida.kpts'
   lvsfile = 'aiida.lvs'
-  verbosity = 3
 &END
 &OUTPUT
   iwrtcdcoefs = 0

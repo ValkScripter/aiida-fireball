@@ -90,7 +90,7 @@ def test_fireball_default(
     calc_info = generate_calc_job(fixture_sandbox, entry_point_name, inputs)
 
     cmdline_params = []
-    remote_symlink_list = [(inputs["fdata_remote"].computer.uuid, os.path.join(inputs["fdata_remote"].get_remote_path(), "*"), "./Fdata/")]
+    remote_symlink_list = [(inputs["fdata_remote"].computer.uuid, inputs["fdata_remote"].get_remote_path(), "./Fdata")]
 
     if symlink_restart:
         remote_symlink_list.extend(
@@ -118,7 +118,7 @@ def test_fireball_default(
         input_written = handle.read()
 
     # Checks on the files written to the sandbox folder as raw input
-    assert sorted(fixture_sandbox.get_content_list()) == sorted(["Fdata", "fireball.in", "aiida.bas", "aiida.lvs", "aiida.kpts"])
+    assert sorted(fixture_sandbox.get_content_list()) == sorted(["fireball.in", "aiida.bas", "aiida.lvs", "aiida.kpts"])
     file_regression.check(input_written, encoding="utf-8", extension=".in")
 
     # Check the content of the bas file
