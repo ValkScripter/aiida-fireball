@@ -1,0 +1,8 @@
+1 	! ieta (use extra imaginary part of selected part )
+1 	! iwrt_trans (dump extra information)
+1 	! ichannel (perform eigenchannel analysis)
+0 	! ifithop
+ -5.0000000000d-01 	! bottom energy (eV)
+ -5.0000000000d-01 	! top energy (eV)
+1 	! number of energy steps
+  1.0000000000d-03 	! imaginary_part
