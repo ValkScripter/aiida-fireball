@@ -64,6 +64,6 @@ output_trajectory:
   pbc:
   - true
   - true
-  - true
+  - false
   symbols:
   - Au

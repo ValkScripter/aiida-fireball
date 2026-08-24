@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for the `FireballCalculation` class."""
 
+import io
 import os
 import re
 
@@ -18,6 +19,38 @@ from aiida_fireball.calculations.fireball import FireballCalculation
 def add_fireball_entry_point(entry_points):
     """Add the `FireballCalculation` entry point in function scope."""
     entry_points.add(FireballCalculation, "aiida.calculations:fireball.fireball")
+
+
+@pytest.fixture
+def generate_structure_with_tips():
+    """Return a `StructureData` with two Au(79) tip groups flanking a central molecule."""
+
+    def _generate_structure_with_tips():
+        structure = orm.StructureData(cell=[[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 20.0]])
+        structure.append_atom(position=(0.0, 0.0, 0.0), symbols="Au", name="Au")
+        structure.append_atom(position=(0.0, 0.0, 1.0), symbols="Au", name="Au")  # last atom of first tip -> z1
+        structure.append_atom(position=(0.0, 0.0, 5.0), symbols="C", name="C")  # molecule
+        structure.append_atom(position=(0.0, 0.0, 9.0), symbols="Au", name="Au")  # first atom of second tip -> z2
+        structure.append_atom(position=(0.0, 0.0, 10.0), symbols="Au", name="Au")
+        return structure
+
+    return _generate_structure_with_tips
+
+
+@pytest.fixture
+def generate_structure_with_different_tips():
+    """Return a `StructureData` with two tip groups of different elements (Pt and Ag) flanking a molecule."""
+
+    def _generate_structure_with_different_tips():
+        structure = orm.StructureData(cell=[[10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 20.0]])
+        structure.append_atom(position=(0.0, 0.0, 0.0), symbols="Pt", name="Pt")
+        structure.append_atom(position=(0.0, 0.0, 1.0), symbols="Pt", name="Pt")  # last atom of first tip -> z1
+        structure.append_atom(position=(0.0, 0.0, 5.0), symbols="C", name="C")  # molecule
+        structure.append_atom(position=(0.0, 0.0, 9.0), symbols="Ag", name="Ag")  # first atom of second tip -> z2
+        structure.append_atom(position=(0.0, 0.0, 10.0), symbols="Ag", name="Ag")
+        return structure
+
+    return _generate_structure_with_different_tips
 
 
 def test_calculation():
@@ -57,7 +90,7 @@ def test_fireball_default(
     calc_info = generate_calc_job(fixture_sandbox, entry_point_name, inputs)
 
     cmdline_params = []
-    remote_symlink_list = [(inputs["fdata_remote"].computer.uuid, os.path.join(inputs["fdata_remote"].get_remote_path(), "*"), "./Fdata/")]
+    remote_symlink_list = [(inputs["fdata_remote"].computer.uuid, inputs["fdata_remote"].get_remote_path(), "./Fdata")]
 
     if symlink_restart:
         remote_symlink_list.extend(
@@ -85,7 +118,7 @@ def test_fireball_default(
         input_written = handle.read()
 
     # Checks on the files written to the sandbox folder as raw input
-    assert sorted(fixture_sandbox.get_content_list()) == sorted(["Fdata", "fireball.in", "aiida.bas", "aiida.lvs", "aiida.kpts"])
+    assert sorted(fixture_sandbox.get_content_list()) == sorted(["fireball.in", "aiida.bas", "aiida.lvs", "aiida.kpts"])
     file_regression.check(input_written, encoding="utf-8", extension=".in")
 
     # Check the content of the bas file
@@ -269,3 +302,219 @@ def test_fireball_dos_settings(
     with fixture_sandbox.open("fireball.in") as handle:
         input_written = handle.read()
     file_regression.check(input_written, encoding="utf-8", extension=".in")
+
+
+def test_fireball_retrieve_list(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that `CHARGES` and `conductance.dat` are always included in the `retrieve_list`."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    calc_info = generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert "CHARGES" in calc_info.retrieve_list
+    assert "conductance.dat" in calc_info.retrieve_list
+
+
+def test_fireball_bias(fixture_sandbox, generate_calc_job, generate_inputs_fireball, generate_structure_with_tips, file_regression):
+    """Test a `FireballCalculation` with `OPTION.ibias = 1` writes `bias.optional`."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    inputs["structure"] = generate_structure_with_tips()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["ibias"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+    inputs["bias"] = orm.Float(0.5)
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert "bias.optional" in fixture_sandbox.get_content_list()
+
+    with fixture_sandbox.open("bias.optional") as handle:
+        bias_written = handle.read()
+    file_regression.check(bias_written, encoding="utf-8", extension=".bias")
+
+
+def test_fireball_bias_different_tip_elements(
+    fixture_sandbox, generate_calc_job, generate_inputs_fireball, generate_structure_with_different_tips, file_regression
+):
+    """Test that `ibias = 1` works when the two tips are made of different, non-gold elements (Pt and Ag)."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    inputs["structure"] = generate_structure_with_different_tips()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["ibias"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+    inputs["bias"] = orm.Float(0.5)
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert "bias.optional" in fixture_sandbox.get_content_list()
+
+    with fixture_sandbox.open("bias.optional") as handle:
+        bias_written = handle.read()
+    file_regression.check(bias_written, encoding="utf-8", extension=".bias")
+
+
+def test_fireball_bias_missing_input(fixture_sandbox, generate_calc_job, generate_inputs_fireball, generate_structure_with_tips):
+    """Test that `ibias = 1` without a `bias` input raises a validation error."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    inputs["structure"] = generate_structure_with_tips()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["ibias"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+
+    error_message = "The `bias` input is required when `ibias` is set to 1 in the `OPTION` namelist."
+
+    with pytest.raises(ValueError, match=re.escape(error_message)):
+        generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+
+def test_fireball_bias_missing_tips(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that `ibias = 1` with a structure lacking two Au tip groups raises a validation error."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()  # default structure is 2D-graphene, no Au atoms
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["ibias"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+    inputs["bias"] = orm.Float(0.5)
+
+    error_message = "Could not find two separate tip groups flanking a central molecule to compute the bias z1/z2 positions."
+
+    with pytest.raises(ValueError, match=re.escape(error_message)):
+        generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+
+def test_fireball_initial_charges(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that providing `initial_charges` adds it to the `local_copy_list` as `CHARGES`."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    charges_file = orm.SinglefileData(file=io.BytesIO(b"dummy charges"), filename="CHARGES")
+    inputs["initial_charges"] = charges_file
+
+    calc_info = generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert (charges_file.uuid, "CHARGES", "CHARGES") in calc_info.local_copy_list
+
+
+def _generate_transport_settings():
+    """Return a valid `settings` dict for `OPTION.itrans = 1`."""
+    return {
+        "TRANS": {
+            "energy": -0.5,
+            "imaginary_part": 0.001,
+        },
+        "INTERACTION": {
+            "sample1": {"interval": [1, 2], "n_atoms_tip": 1, "tip_atoms": [1]},
+            "sample2": {"interval": [1, 2], "n_atoms_tip": 1, "tip_atoms": [2]},
+        },
+        "ETA": {
+            "eta_value": 0.001,
+            "interval": [1, 2],
+        },
+    }
+
+
+def test_fireball_transport(fixture_sandbox, generate_calc_job, generate_inputs_fireball, file_regression):
+    """Test that `itrans = 1` writes `trans.optional`, `interaction.optional` and `eta.optional` together."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["itrans"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+    inputs["settings"] = orm.Dict(_generate_transport_settings())
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    content_list = fixture_sandbox.get_content_list()
+    assert "trans.optional" in content_list
+    assert "interaction.optional" in content_list
+    assert "eta.optional" in content_list
+
+    with fixture_sandbox.open("trans.optional") as handle:
+        trans_written = handle.read()
+    file_regression.check(trans_written, encoding="utf-8", extension=".trans")
+
+    with fixture_sandbox.open("interaction.optional") as handle:
+        interaction_written = handle.read()
+    file_regression.check(interaction_written, encoding="utf-8", extension=".interaction")
+
+    with fixture_sandbox.open("eta.optional") as handle:
+        eta_written = handle.read()
+    file_regression.check(eta_written, encoding="utf-8", extension=".eta")
+
+
+def test_fireball_interaction_large_system(fixture_sandbox, generate_calc_job, generate_inputs_fireball, file_regression):
+    """Test `interaction.optional` generation for a larger, more realistic system (75 atoms total)."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["itrans"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+
+    # `n_atoms` for sample2 is derived from the total atom count of the structure, so the
+    # structure must actually contain the 75 atoms the settings below refer to.
+    structure = orm.StructureData(cell=[[100.0, 0.0, 0.0], [0.0, 100.0, 0.0], [0.0, 0.0, 100.0]])
+    for i in range(75):
+        structure.append_atom(position=(0.0, 0.0, float(i)), symbols="C", name="C")
+    inputs["structure"] = structure
+
+    settings = _generate_transport_settings()
+    tip_atoms_1 = list(range(1, 6))  # 5 tip atoms at the start of sample1
+    tip_atoms_2 = list(range(71, 76))  # 5 tip atoms at the end of sample2
+    settings["INTERACTION"] = {
+        "sample1": {"interval": [1, 40], "n_atoms_tip": len(tip_atoms_1), "tip_atoms": tip_atoms_1},
+        "sample2": {"interval": [41, 75], "n_atoms_tip": len(tip_atoms_2), "tip_atoms": tip_atoms_2},
+    }
+    inputs["settings"] = orm.Dict(settings)
+
+    generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+    assert "interaction.optional" in fixture_sandbox.get_content_list()
+
+    with fixture_sandbox.open("interaction.optional") as handle:
+        interaction_written = handle.read()
+    file_regression.check(interaction_written, encoding="utf-8", extension=".interaction")
+
+
+def test_fireball_transport_missing_settings(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that `itrans = 1` without the `TRANS`/`INTERACTION`/`ETA` settings raises a validation error."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["itrans"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+
+    error_message = "The `settings['TRANS']` dictionary is required when `itrans` is set to 1 in the `OPTION` namelist."
+
+    with pytest.raises(ValueError, match=re.escape(error_message)):
+        generate_calc_job(fixture_sandbox, entry_point_name, inputs)
+
+
+def test_fireball_transport_inconsistent_tip_atoms(fixture_sandbox, generate_calc_job, generate_inputs_fireball):
+    """Test that a mismatched `n_atoms_tip` vs `tip_atoms` length raises a validation error."""
+    entry_point_name = "fireball.fireball"
+
+    inputs = generate_inputs_fireball()
+    parameters = inputs["parameters"].get_dict()
+    parameters.setdefault("OPTION", {})["itrans"] = 1
+    inputs["parameters"] = orm.Dict(parameters)
+
+    settings = _generate_transport_settings()
+    settings["INTERACTION"]["sample1"]["n_atoms_tip"] = 2  # inconsistent with the single tip atom provided
+    inputs["settings"] = orm.Dict(settings)
+
+    error_message = (
+        "The declared `n_atoms_tip` (2) for `settings['INTERACTION']['sample1']` does not match the number of `tip_atoms` provided (1)."
+    )
+
+    with pytest.raises(ValueError, match=re.escape(error_message)):
+        generate_calc_job(fixture_sandbox, entry_point_name, inputs)

@@ -5,6 +5,125 @@ from typing import Optional
 import numpy
 
 
+def find_bias_z_positions(structure) -> tuple[float, float]:
+    """Find the z-positions of the two tips flanking the central molecule.
+
+    Assumes the structure is ordered as a contiguous run of tip1 atoms, followed by the central molecule (or
+    any other atoms), followed by a contiguous run of tip2 atoms. The tip1 element is taken from the first
+    site of the structure and the tip2 element from the last site; the two tips need not be the same element.
+
+    :param structure: the `aiida.orm.StructureData` to inspect.
+    :return: a tuple ``(z1, z2)`` where ``z1`` is the z-position of the last atom of the first tip run and
+        ``z2`` is the z-position of the first atom of the second tip run.
+    """
+    ase_structure = structure.get_ase()
+    numbers = ase_structure.get_atomic_numbers()
+    positions = ase_structure.get_positions()
+    n_atoms = len(numbers)
+
+    if n_atoms == 0:
+        raise ValueError("Could not find two separate tip groups flanking a central molecule: the structure has no sites.")
+
+    tip1_number = numbers[0]
+    index = 0
+    while index < n_atoms and numbers[index] == tip1_number:
+        index += 1
+    tip1_end = index - 1
+
+    tip2_number = numbers[-1]
+    index = n_atoms - 1
+    while index >= 0 and numbers[index] == tip2_number:
+        index -= 1
+    tip2_start = index + 1
+
+    if tip1_end >= tip2_start:
+        raise ValueError("Could not find two separate tip groups flanking a central molecule to compute the bias z1/z2 positions.")
+
+    z1 = float(positions[tip1_end][2])
+    z2 = float(positions[tip2_start][2])
+
+    return z1, z2
+
+
+def validate_bias_params(value, settings: dict, parameters: dict) -> list[str]:
+    """Validate the ``bias`` input port required when ``OPTION.ibias`` is set to 1.
+
+    :param value: The entire inputs namespace.
+    :param settings: The settings dictionary.
+    :param parameters: The parameters dictionary.
+    :return: A list of error messages, empty if no errors.
+    """
+    messages = []
+
+    ibias = parameters.get("OPTION", {}).get("ibias")
+
+    if ibias == 1:
+        if "bias" not in value:
+            messages.append("The `bias` input is required when `ibias` is set to 1 in the `OPTION` namelist.")
+        if "structure" in value:
+            try:
+                find_bias_z_positions(value["structure"])
+            except ValueError as exception:
+                messages.append(str(exception))
+
+    return messages
+
+
+def validate_transport_params(value, settings: dict, parameters: dict) -> list[str]:
+    """Validate the transport settings required when ``OPTION.itrans`` is set to 1.
+
+    :param value: The entire inputs namespace.
+    :param settings: The settings dictionary.
+    :param parameters: The parameters dictionary.
+    :return: A list of error messages, empty if no errors.
+    """
+    messages = []
+
+    itrans = parameters.get("OPTION", {}).get("itrans")
+
+    if itrans != 1:
+        return messages
+
+    trans_params = settings.get("TRANS")
+    interaction_params = settings.get("INTERACTION")
+    eta_params = settings.get("ETA")
+
+    if trans_params is None:
+        messages.append("The `settings['TRANS']` dictionary is required when `itrans` is set to 1 in the `OPTION` namelist.")
+
+    if interaction_params is None:
+        messages.append("The `settings['INTERACTION']` dictionary is required when `itrans` is set to 1 in the `OPTION` namelist.")
+    else:
+        for sample_key in ("sample1", "sample2"):
+            sample = interaction_params.get(sample_key)
+            if sample is None:
+                messages.append(f"The `settings['INTERACTION']['{sample_key}']` dictionary is required when `itrans` is set to 1.")
+                continue
+
+            interval = sample.get("interval")
+            if interval is None or len(interval) != 2:
+                messages.append(f"The `interval` for `settings['INTERACTION']['{sample_key}']` must be a list of 2 values `[start, end]`.")
+
+            tip_atoms = sample.get("tip_atoms", [])
+            n_atoms_tip = sample.get("n_atoms_tip")
+            if not tip_atoms:
+                messages.append(f"The `tip_atoms` list for `settings['INTERACTION']['{sample_key}']` must not be empty.")
+            elif n_atoms_tip != len(tip_atoms):
+                messages.append(
+                    f"The declared `n_atoms_tip` ({n_atoms_tip}) for `settings['INTERACTION']['{sample_key}']` does not match "
+                    f"the number of `tip_atoms` provided ({len(tip_atoms)})."
+                )
+
+    if eta_params is None:
+        messages.append("The `settings['ETA']` dictionary is required when `itrans` is set to 1 in the `OPTION` namelist.")
+    else:
+        interval = eta_params.get("interval")
+        if interval is None or len(interval) != 2:
+            messages.append("The `interval` for `settings['ETA']` must be a list of 2 values `[start, end]`.")
+
+    return messages
+
+
 def validate_fixed_coords(value, settings: dict, parameters: dict) -> list[str]:
     """Validate the ``fixed_coords`` input port.
 
