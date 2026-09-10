@@ -18,7 +18,7 @@ from .raw import parse_raw_stdout
 class FireballParser(Parser):
     """`Parser` implementation for the `FireballCalculation` calculation job class."""
 
-    success_string = "(FIREBALL RUNTIME)|(That`sall for now)"
+    success_string = r"(FIREBALL RUNTIME)|(That`s\s+all for now)"
 
     def parse(self, **kwargs):
         """Parse outputs and store results in the database."""
@@ -153,9 +153,16 @@ class FireballParser(Parser):
             return None, logs
 
         # pylint: disable=line-too-long
+        # Fireball's answer.xyz comment line has no explicit time field, e.g.:
+        #   "ETOT =   -72498.915937      T_instantaneous =        7.5399"
         comment_match = re.compile(
-            r"\s*ETOT =\s*(?P<energy>[+-]?(\w|\.)*)\s*eV; T =\s*(?P<temperature>(\w|\.)*)\s*K; Time =\s*(?P<time>(\w|\.)*)\s*fs"
+            r"\s*ETOT\s*=\s*(?P<energy>[+-]?[\d.eEdD+-]+)\s*T_instantaneous\s*=\s*(?P<temperature>[+-]?[\d.eEdD+-]+)"
         )
+
+        try:
+            dt = self.node.inputs.parameters.get_dict().get("OPTION", {}).get("dt")
+        except AttributeError:
+            dt = None
 
         with open(answer_xyz_file, "r", encoding="utf-8") as handle:
             lines = handle.readlines()
@@ -167,16 +174,16 @@ class FireballParser(Parser):
                 symbols: list[str] = []
                 positions: list[list[float]] = []
                 natoms = int(lines.pop(0))
-                comment = lines.pop(0)  # Comment line with energy, temperature, and time
+                comment = lines.pop(0)  # Comment line with energy and temperature
                 match = comment_match.match(comment)
                 if match:
                     energies.append(float(match.group("energy")))
                     temperatures.append(float(match.group("temperature")))
-                    times.append(float(match.group("time")))
                 else:
                     energies.append(None)
                     temperatures.append(None)
-                    times.append(None)
+                # answer.xyz carries no per-frame time; reconstruct it from the MD timestep.
+                times.append(len(times) * dt if dt is not None else float(len(times)))
                 for _ in range(natoms):
                     line = lines.pop(0)
                     symbol, *coords = line.split()[:4]
